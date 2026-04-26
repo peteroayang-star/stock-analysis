@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet new:*)",
+      "Bash(dotnet sln:*)",
+      "Bash(dotnet add:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet run:*)",
+      "Bash(python3 -c ':*)",
+      "Bash(powershell -Command ':*)",
+      "Bash(powershell -Command \"Get-Content data.csv | Measure-Object -Line\")",
+      "Bash(powershell -Command \"Get-Content data.csv | Select-Object -First 3\")",
+      "Bash(taskkill:*)",
+      "Bash(tasklist /FI \"IMAGENAME eq dotnet.exe\")",
+      "Bash(netstat -ano)",
+      "Bash(cat)",
+      "Bash(python /tmp/gen_csv.py)",
+      "Bash(gh auth:*)"
+    ]
+  }
+}

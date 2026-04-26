@@ -1,0 +1,57 @@
+@model StockAnalysis.Web.Models.BacktestViewModel
+@{
+    ViewData["Title"] = "回测结果";
+}
+
+<h4 class="mb-3">回测结果</h4>
+<a asp-controller="Backtest" asp-action="Index" class="btn btn-outline-secondary btn-sm mb-3">重新回测</a>
+
+@if (Model.Summary != null)
+{
+    <div class="card mb-4" style="max-width:500px">
+        <div class="card-header fw-bold">汇总统计</div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-6">信号数：<strong>@Model.Summary.TotalSignals</strong></div>
+                <div class="col-6">胜率：<strong>@Model.Summary.WinRate.ToString("F1")%</strong></div>
+                <div class="col-6">5日均收益：<strong>@Model.Summary.AvgReturn5D.ToString("F2")%</strong></div>
+                <div class="col-6">盈亏比：<strong>@Model.Summary.ProfitLossRatio.ToString("F2")</strong></div>
+                <div class="col-6">平均盈利：<strong>@Model.Summary.AvgWin.ToString("F2")%</strong></div>
+                <div class="col-6">平均亏损：<strong>@Model.Summary.AvgLoss.ToString("F2")%</strong></div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (Model.Results.Any())
+{
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover table-sm">
+            <thead class="table-dark">
+                <tr>
+                    <th>代码</th><th>名称</th><th>信号日期</th><th>信号类型</th>
+                    <th>买入价</th><th>1日%</th><th>3日%</th><th>5日%</th><th>10日%</th><th>最大回撤%</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Results)
+                {
+                    <tr>
+                        <td>@r.Code</td><td>@r.Name</td>
+                        <td>@r.SignalDate.ToString("yyyy-MM-dd")</td><td>@r.SignalType</td>
+                        <td>@r.EntryPrice.ToString("F2")</td>
+                        <td class="@(r.Return1D > 0 ? "text-success" : "text-danger")">@r.Return1D.ToString("F2")</td>
+                        <td class="@(r.Return3D > 0 ? "text-success" : "text-danger")">@r.Return3D.ToString("F2")</td>
+                        <td class="@(r.Return5D > 0 ? "text-success" : "text-danger")">@r.Return5D.ToString("F2")</td>
+                        <td class="@(r.Return10D > 0 ? "text-success" : "text-danger")">@r.Return10D.ToString("F2")</td>
+                        <td class="text-danger">@r.MaxDrawdown.ToString("F2")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="alert alert-warning">未检测到任何信号</div>
+}

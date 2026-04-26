@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+appsettings.Development.json
+Data/SystemStocks/
+__pycache__/
+*.pyc

@@ -1,0 +1,33 @@
+html {
+  font-size: 14px;
+}
+
+@media (min-width: 768px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
+  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+}
+
+html {
+  position: relative;
+  min-height: 100%;
+}
+
+body {
+  margin-bottom: 60px;
+}
+
+/* 橙色决策标签 */
+.bg-orange { background-color: #fd7e14 !important; }
+
+/* 决策卡左边框颜色 */
+.decision-buy    { border-left: 4px solid #198754 !important; }
+.decision-watch  { border-left: 4px solid #ffc107 !important; }
+.decision-hold   { border-left: 4px solid #0d6efd !important; }
+.decision-reduce { border-left: 4px solid #fd7e14 !important; }
+.decision-sell   { border-left: 4px solid #dc3545 !important; }
+.decision-ignore { border-left: 4px solid #6c757d !important; }

@@ -1,0 +1,126 @@
+@model StockAnalysis.Web.Models.AnalysisViewModel
+@using StockAnalysis.Core.Models
+@{
+    ViewData["Title"] = "交易决策面板";
+    var buyItems   = Model.Items.Where(x => x.Signal.Decision == Decision.Buy).ToList();
+    var watchItems = Model.Items.Where(x => x.Signal.Decision == Decision.Watch).ToList();
+    var ignoreItems= Model.Items.Where(x => x.Signal.Decision == Decision.Ignore).ToList();
+
+    string DecisionBadge(Decision d) => d switch {
+        Decision.Buy    => "bg-success",
+        Decision.Watch  => "bg-warning text-dark",
+        Decision.Hold   => "bg-primary",
+        Decision.Reduce => "bg-orange text-white",
+        Decision.Sell   => "bg-danger",
+        _               => "bg-secondary"
+    };
+    string DecisionBorderClass(Decision d) => d switch {
+        Decision.Buy    => "decision-buy",
+        Decision.Watch  => "decision-watch",
+        Decision.Hold   => "decision-hold",
+        Decision.Reduce => "decision-reduce",
+        Decision.Sell   => "decision-sell",
+        _               => "decision-ignore"
+    };
+    string DecisionLabel(Decision d) => d switch {
+        Decision.Buy    => "可以买入",
+        Decision.Watch  => "观察等待",
+        Decision.Hold   => "持有不动",
+        Decision.Reduce => "建议减仓",
+        Decision.Sell   => "止损离场",
+        _               => "暂时观望"
+    };
+    string SignalLabel(BuySignalType t) => t switch {
+        BuySignalType.VolumeBreakout  => "倍量突破",
+        BuySignalType.PullbackSupport => "缩量回踩",
+        BuySignalType.VolumeWashout   => "凹量洗盘",
+        _                             => "无信号"
+    };
+}
+
+<div class="d-flex align-items-center mb-3 gap-2">
+    <h4 class="mb-0">交易决策面板</h4>
+    <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary btn-sm ms-auto">返回首页</a>
+</div>
+
+@if (!Model.Items.Any())
+{
+    <div class="alert alert-warning">未检测到任何信号（数据不足或被过滤）</div>
+}
+else
+{
+    @if (buyItems.Any() || watchItems.Any())
+    {
+        <div class="alert alert-success mb-4">
+            <strong>今日重点关注：</strong>
+            @string.Join("、", buyItems.Concat(watchItems).Select(x => $"{x.Signal.Name}({x.Signal.Code})"))
+        </div>
+    }
+
+    @foreach (var item in Model.Items)
+    {
+        var s = item.Signal;
+        <div class="card mb-3 border-0 shadow-sm @DecisionBorderClass(s.Decision)">
+            <div class="card-header d-flex align-items-center gap-2 bg-white">
+                <span class="fw-bold fs-5">@s.Name <small class="text-muted">@s.Code</small></span>
+                <span class="badge @DecisionBadge(s.Decision) ms-2 fs-6">@DecisionLabel(s.Decision)</span>
+                <span class="ms-auto text-muted small">@s.Date.ToString("yyyy-MM-dd")　收盘 @s.Close.ToString("F2")</span>
+            </div>
+            <div class="card-body pb-2">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="p-3 rounded" style="background:#f8f9fa">
+                            <div class="small text-muted mb-1">买入判断</div>
+                            <div class="fw-bold mb-1">@(s.SignalType == BuySignalType.None ? "无买入信号" : SignalLabel(s.SignalType))</div>
+                            <div class="small text-secondary">@item.Suggestion</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 rounded" style="background:#fff8f0">
+                            <div class="small text-muted mb-1">风险提示　风险分：<strong>@s.RiskScore</strong>/100</div>
+                            @if (s.Reasons.Any())
+                            {
+                                <ul class="mb-0 ps-3 small">
+                                    @foreach (var r in s.Reasons) { <li>@r</li> }
+                                </ul>
+                            }
+                            else { <span class="small text-success">暂无明显风险</span> }
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 rounded" style="background:#f0f8ff">
+                            <div class="small text-muted mb-1">价格参考</div>
+                            <table class="table table-sm mb-0 small">
+                                <tr><td class="text-muted">支撑位（MA20）</td><td class="fw-bold">@(s.SupportPrice?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td class="text-danger">止损位（-2%）</td><td class="fw-bold text-danger">@(s.StopLossPrice?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td class="text-muted">观察位（MA10+2%）</td><td class="fw-bold">@(s.WatchPrice?.ToString("F2") ?? "-")</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (ignoreItems.Any())
+    {
+        <details class="mt-2">
+            <summary class="text-muted small">其他观望股票（@ignoreItems.Count 只）</summary>
+            <div class="table-responsive mt-2">
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light"><tr><th>代码</th><th>名称</th><th>收盘</th><th>风险分</th><th>原因</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in ignoreItems)
+                        {
+                            <tr>
+                                <td>@item.Signal.Code</td><td>@item.Signal.Name</td>
+                                <td>@item.Signal.Close.ToString("F2")</td><td>@item.Signal.RiskScore</td>
+                                <td class="small">@string.Join("、", item.Signal.Reasons)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    }
+}

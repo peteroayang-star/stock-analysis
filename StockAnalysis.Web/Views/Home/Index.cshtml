@@ -1,0 +1,52 @@
+﻿@{
+    ViewData["Title"] = "股票分析系统";
+}
+
+<h2 class="mb-1">股票交易决策系统</h2>
+<p class="text-muted mb-2">帮你回答：现在能不能买？风险在哪里？该不该止损？</p>
+<div class="mb-4">
+    <p class="fs-5 mb-2">输入股票名称，一键判断能不能买。</p>
+    <a asp-controller="Stock" asp-action="Index" class="btn btn-primary btn-lg">立即分析一只股票</a>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card h-100 border-primary">
+            <div class="card-body">
+                <h5 class="card-title text-primary">快速选股</h5>
+                <p class="card-text text-muted small">上传行情文件，系统自动判断哪只股票现在可以买、风险多大、止损在哪里。</p>
+                <a asp-controller="Stock" asp-action="Index" class="btn btn-primary">找可以买的股票</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-success">
+            <div class="card-body">
+                <h5 class="card-title text-success">我的持仓</h5>
+                <p class="card-text text-muted small">已经买了？系统告诉你现在该拿着、减仓还是止损离场。</p>
+                <a asp-controller="Portfolio" asp-action="Index" class="btn btn-success">判断现在该不该卖</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-warning">
+            <div class="card-body">
+                <h5 class="card-title text-warning">历史回测</h5>
+                <p class="card-text text-muted small">用历史数据验证：这套买卖策略过去胜率多少？平均能赚多少？</p>
+                <a asp-controller="Backtest" asp-action="Index" class="btn btn-warning">验证策略是否有效</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-5 p-3 bg-light rounded">
+    <h6 class="text-muted mb-2">系统会给出的操作建议</h6>
+    <div class="row g-2">
+        <div class="col-md-4"><span class="badge bg-success me-1">可以买入</span> 信号出现，风险可控</div>
+        <div class="col-md-4"><span class="badge bg-warning text-dark me-1">观察等待</span> 有信号但风险偏高，等等看</div>
+        <div class="col-md-4"><span class="badge bg-primary me-1">持有不动</span> 趋势健康，继续拿着</div>
+        <div class="col-md-4"><span class="badge bg-orange text-white me-1">建议减仓</span> 风险上升，先减半仓</div>
+        <div class="col-md-4"><span class="badge bg-danger me-1">止损离场</span> 风险过高，及时出局</div>
+        <div class="col-md-4"><span class="badge bg-secondary me-1">暂时观望</span> 无信号，不参与</div>
+    </div>
+</div>
