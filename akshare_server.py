@@ -5,6 +5,10 @@ AKShare 行情数据服务
   GET /stock/<code>       返回 CSV 格式行情数据
   GET /search/<name>      按名称查询股票代码，返回 JSON
 """
+import sys, io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 from flask import Flask, Response, jsonify
 import akshare as ak
 import pandas as pd
@@ -32,13 +36,21 @@ def get_stock(code):
     except Exception as e:
         return {"error": str(e)}, 500
 
+def normalize(s):
+    return ''.join(chr(ord(c) - 0xFEE0) if 0xFF01 <= ord(c) <= 0xFF5E else c for c in s)
+
 @app.route("/search/<name>")
 def search_stock(name):
     try:
         stock_list = get_stock_list()
-        code = stock_list.get(name)
-        if code:
-            return jsonify({"code": code, "name": name})
+        name_norm = normalize(name)
+        for k, v in stock_list.items():
+            if normalize(k) == name_norm:
+                return jsonify({"code": v, "name": k})
+        # 模糊匹配
+        for k, v in stock_list.items():
+            if name_norm in normalize(k):
+                return jsonify({"code": v, "name": k})
         return {"error": "not found"}, 404
     except Exception as e:
         return {"error": str(e)}, 500
@@ -91,12 +103,20 @@ def get_finance(code):
         # 取最近4期日期列
         date_cols = [c for c in df.columns if str(c).isdigit()][:4]
         # 提取关键行：营业收入(1)、净利润(3)、净利率(14)、营收增长率(51)、净利润增长率(52)
+        def find_row(name):
+            matches = df[df['指标'] == name]
+            return matches.iloc[0] if not matches.empty else None
+
+        def get_vals(name):
+            row = find_row(name)
+            return list(row[date_cols].astype(float)) if row is not None else []
+
         rows = {
-            "revenue":      list(df.iloc[1][date_cols].astype(float)),
-            "net_profit":   list(df.iloc[3][date_cols].astype(float)),
-            "net_margin":   list(df.iloc[14][date_cols].astype(float)),
-            "revenue_yoy":  list(df.iloc[51][date_cols].astype(float)),
-            "profit_yoy":   list(df.iloc[52][date_cols].astype(float)),
+            "revenue":      get_vals("营业总收入"),
+            "net_profit":   get_vals("归母净利润"),
+            "net_margin":   get_vals("销售净利率"),
+            "revenue_yoy":  get_vals("营业总收入增长率"),
+            "profit_yoy":   get_vals("归属母公司净利润增长率"),
             "periods":      list(date_cols)
         }
         return jsonify(rows)

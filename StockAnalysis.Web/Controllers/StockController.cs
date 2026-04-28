@@ -78,13 +78,23 @@ public class StockController : Controller
             var finReasons = new List<string>();
             if (fin != null && fin.ProfitYoy.Length > 0)
             {
-                var latestProfitYoy = fin.ProfitYoy[0];
-                var latestRevenueYoy = fin.RevenueYoy.Length > 0 ? fin.RevenueYoy[0] : 0;
-                if (latestProfitYoy < -20) { finAdj += 20; finReasons.Add($"净利润同比下滑{Math.Abs(latestProfitYoy):F1}%"); }
-                else if (latestProfitYoy < 0)  { finAdj += 10; finReasons.Add($"净利润同比下滑{Math.Abs(latestProfitYoy):F1}%"); }
-                else if (latestProfitYoy > 30) { finAdj -= 10; finReasons.Add($"净利润同比增长{latestProfitYoy:F1}%"); }
-                if (latestRevenueYoy < -10)    { finAdj += 10; finReasons.Add($"营收同比下滑{Math.Abs(latestRevenueYoy):F1}%"); }
-                else if (latestRevenueYoy > 20){ finAdj -= 5;  finReasons.Add($"营收同比增长{latestRevenueYoy:F1}%"); }
+                // 同比绝对值超过1000%视为基期异常（基期接近0），忽略该数据
+                var latestProfitYoy = Math.Abs(fin.ProfitYoy[0]) > 1000 ? double.NaN : fin.ProfitYoy[0];
+                var latestRevenueYoy = fin.RevenueYoy.Length > 0
+                    ? (Math.Abs(fin.RevenueYoy[0]) > 1000 ? double.NaN : fin.RevenueYoy[0])
+                    : double.NaN;
+
+                if (!double.IsNaN(latestProfitYoy))
+                {
+                    if (latestProfitYoy < -20)     { finAdj += 20; finReasons.Add($"净利润同比下滑{Math.Abs(latestProfitYoy):F1}%"); }
+                    else if (latestProfitYoy < 0)  { finAdj += 10; finReasons.Add($"净利润同比下滑{Math.Abs(latestProfitYoy):F1}%"); }
+                    else if (latestProfitYoy > 30) { finAdj -= 10; finReasons.Add($"净利润同比增长{latestProfitYoy:F1}%"); }
+                }
+                if (!double.IsNaN(latestRevenueYoy))
+                {
+                    if (latestRevenueYoy < -10)      { finAdj += 10; finReasons.Add($"营收同比下滑{Math.Abs(latestRevenueYoy):F1}%"); }
+                    else if (latestRevenueYoy > 20)  { finAdj -= 5;  finReasons.Add($"营收同比增长{latestRevenueYoy:F1}%"); }
+                }
             }
             s.RiskScore = Math.Clamp(s.RiskScore + finAdj, 0, 100);
 

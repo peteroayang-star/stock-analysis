@@ -60,11 +60,18 @@
 }
 else
 {
-    @if (buyItems.Any() || watchItems.Any())
+    @if (buyItems.Any())
     {
         <div class="alert alert-success mb-4">
             <strong>今日重点关注：</strong>
-            @string.Join("、", buyItems.Concat(watchItems).Select(x => $"{x.Signal.Name}({x.Signal.Code})"))
+            @string.Join("、", buyItems.Select(x => $"{x.Signal.Name}({x.Signal.Code})"))
+        </div>
+    }
+    else if (watchItems.Any())
+    {
+        <div class="alert alert-warning mb-4">
+            <strong>今日观察：</strong>
+            @string.Join("、", watchItems.Select(x => $"{x.Signal.Name}({x.Signal.Code})"))
         </div>
     }
 
@@ -102,6 +109,10 @@ else
                             <div class="fw-bold fs-6 mb-2">@DecisionLabel(s.Decision)　@(s.SignalType != BuySignalType.None ? $"· {SignalLabel(s.SignalType)}" : "")</div>
                             <div class="small text-muted mb-1">操作建议</div>
                             <div class="small text-dark">@s.ActionAdvice</div>
+                            @if (s.Decision == Decision.Ignore && s.RiskScore < 30)
+                            {
+                                <div class="small text-muted mt-1">（风险较低，暂无明确趋势信号）</div>
+                            }
                             @if (s.PositionPct > 0)
                             {
                                 <div class="mt-2 small"><span class="badge bg-info text-dark">建议仓位 @s.PositionPct%</span></div>
@@ -130,7 +141,16 @@ else
                             <div class="small text-muted mb-1">关键价位</div>
                             <table class="table table-sm mb-0 small">
                                 <tr><td class="text-muted">支撑位（MA20）</td><td class="fw-bold">@(s.SupportPrice?.ToString("F2") ?? "-")</td></tr>
-                                <tr><td class="text-danger">止损位（-2%）</td><td class="fw-bold text-danger">@(s.StopLossPrice?.ToString("F2") ?? "-")</td></tr>
+                                <tr>
+                                    <td class="text-danger">止损位（-2%）</td>
+                                    <td class="fw-bold text-danger">
+                                        @(s.StopLossPrice?.ToString("F2") ?? "-")
+                                        @if (item.RealTime != null && s.StopLossPrice.HasValue && item.RealTime.Price < s.StopLossPrice.Value)
+                                        {
+                                            <span class="badge bg-danger ms-1">已触发止损</span>
+                                        }
+                                    </td>
+                                </tr>
                                 <tr><td class="text-muted">观察位（MA10+2%）</td><td class="fw-bold">@(s.WatchPrice?.ToString("F2") ?? "-")</td></tr>
                             </table>
                         </div>
@@ -153,11 +173,14 @@ else
                                     @for (int i = 0; i < item.Finance.Periods.Length; i++)
                                     {
                                         var yoy = item.Finance.ProfitYoy.Length > i ? item.Finance.ProfitYoy[i] : double.NaN;
+                                        var revYoy = item.Finance.RevenueYoy.Length > i ? item.Finance.RevenueYoy[i] : double.NaN;
+                                        bool yoyInvalid = double.IsNaN(yoy) || Math.Abs(yoy) > 100;
+                                        bool revInvalid = double.IsNaN(revYoy) || Math.Abs(revYoy) > 1000;
                                         var yoyClass = yoy > 0 ? "text-danger" : "text-success";
                                         <div class="border rounded p-2" style="min-width:120px">
                                             <div class="text-muted">@item.Finance.Periods[i]</div>
-                                            <div>净利润同比：<span class="fw-bold @yoyClass">@(double.IsNaN(yoy) ? "-" : $"{yoy:F1}%")</span></div>
-                                            <div>营收同比：<span class="fw-bold">@(item.Finance.RevenueYoy.Length > i ? $"{item.Finance.RevenueYoy[i]:F1}%" : "-")</span></div>
+                                            <div>净利润同比：<span class="fw-bold @(yoyInvalid ? "" : yoyClass)">@(yoyInvalid ? "-" : $"{yoy:F1}%")</span></div>
+                                            <div>营收同比：<span class="fw-bold">@(revInvalid ? "-" : $"{revYoy:F1}%")</span></div>
                                         </div>
                                     }
                                 </div>
@@ -178,13 +201,18 @@ else
 
     @if (ignoreItems.Any())
     {
+        // 单股查询时主卡片已展示该股，观望列表过滤掉已展示的股票
+        var mainCodes = buyItems.Concat(watchItems).Select(x => x.Signal.Code).ToHashSet();
+        var filteredIgnore = ignoreItems.Where(x => !mainCodes.Contains(x.Signal.Code)).ToList();
+        @if (filteredIgnore.Any())
+        {
         <details class="mt-2">
-            <summary class="text-muted small">其他观望股票（@ignoreItems.Count 只）</summary>
+            <summary class="text-muted small">当前观望股票（@filteredIgnore.Count 只）</summary>
             <div class="table-responsive mt-2">
                 <table class="table table-sm table-bordered">
                     <thead class="table-light"><tr><th>代码</th><th>名称</th><th>收盘</th><th>趋势</th><th>风险分</th><th>原因</th></tr></thead>
                     <tbody>
-                        @foreach (var item in ignoreItems)
+                        @foreach (var item in filteredIgnore)
                         {
                             <tr>
                                 <td>@item.Signal.Code</td>
@@ -199,5 +227,6 @@ else
                 </table>
             </div>
         </details>
+        }
     }
 }
