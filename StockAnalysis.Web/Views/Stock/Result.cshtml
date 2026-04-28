@@ -2,9 +2,9 @@
 @using StockAnalysis.Core.Models
 @{
     ViewData["Title"] = "交易决策面板";
-    var buyItems   = Model.Items.Where(x => x.Signal.Decision == Decision.Buy).ToList();
-    var watchItems = Model.Items.Where(x => x.Signal.Decision == Decision.Watch).ToList();
-    var ignoreItems= Model.Items.Where(x => x.Signal.Decision == Decision.Ignore).ToList();
+    var buyItems    = Model.Items.Where(x => x.Signal.Decision == Decision.Buy).ToList();
+    var watchItems  = Model.Items.Where(x => x.Signal.Decision == Decision.Watch).ToList();
+    var ignoreItems = Model.Items.Where(x => x.Signal.Decision == Decision.Ignore).ToList();
 
     string DecisionBadge(Decision d) => d switch {
         Decision.Buy    => "bg-success",
@@ -28,7 +28,17 @@
         Decision.Hold   => "持有不动",
         Decision.Reduce => "建议减仓",
         Decision.Sell   => "止损离场",
-        _               => "暂时观望"
+        _               => "不参与"
+    };
+    string TrendLabel(Trend t) => t switch {
+        Trend.Up       => "上涨",
+        Trend.Down     => "下跌",
+        _              => "震荡"
+    };
+    string TrendClass(Trend t) => t switch {
+        Trend.Up   => "text-success",
+        Trend.Down => "text-danger",
+        _          => "text-warning"
     };
     string SignalLabel(BuySignalType t) => t switch {
         BuySignalType.VolumeBreakout  => "倍量突破",
@@ -36,6 +46,7 @@
         BuySignalType.VolumeWashout   => "凹量洗盘",
         _                             => "无信号"
     };
+    string RiskClass(int score) => score >= 60 ? "text-danger" : score >= 30 ? "text-warning" : "text-success";
 }
 
 <div class="d-flex align-items-center mb-3 gap-2">
@@ -61,35 +72,62 @@ else
     {
         var s = item.Signal;
         <div class="card mb-3 border-0 shadow-sm @DecisionBorderClass(s.Decision)">
-            <div class="card-header d-flex align-items-center gap-2 bg-white">
+            <div class="card-header d-flex align-items-center gap-2 bg-white flex-wrap">
                 <span class="fw-bold fs-5">@s.Name <small class="text-muted">@s.Code</small></span>
                 <span class="badge @DecisionBadge(s.Decision) ms-2 fs-6">@DecisionLabel(s.Decision)</span>
-                <span class="ms-auto text-muted small">@s.Date.ToString("yyyy-MM-dd")　收盘 @s.Close.ToString("F2")</span>
+                @if (item.RealTime != null)
+                {
+                    var rt = item.RealTime;
+                    var pctClass = rt.ChangePct >= 0 ? "text-danger" : "text-success";
+                    var pctSign  = rt.ChangePct >= 0 ? "+" : "";
+                    <span class="ms-auto d-flex gap-3 align-items-center small">
+                        <span>当前价：<strong>@rt.Price.ToString("F2")</strong></span>
+                        <span class="@pctClass fw-bold">@pctSign@rt.ChangePct.ToString("F2")%</span>
+                        <span class="text-muted">今开 @rt.Open.ToString("F2")</span>
+                        <span class="text-muted">昨收 @rt.PreClose.ToString("F2")</span>
+                    </span>
+                }
+                else
+                {
+                    <span class="ms-auto text-muted small">@s.Date.ToString("yyyy-MM-dd")　收盘 @s.Close.ToString("F2")</span>
+                }
             </div>
             <div class="card-body pb-2">
                 <div class="row g-3">
+
+                    @* 1. 当前结论 + 操作建议 *@
                     <div class="col-md-4">
                         <div class="p-3 rounded" style="background:#f8f9fa">
-                            <div class="small text-muted mb-1">买入判断</div>
-                            <div class="fw-bold mb-1">@(s.SignalType == BuySignalType.None ? "无买入信号" : SignalLabel(s.SignalType))</div>
-                            <div class="small text-secondary">@item.Suggestion</div>
+                            <div class="small text-muted mb-1">当前结论</div>
+                            <div class="fw-bold fs-6 mb-2">@DecisionLabel(s.Decision)　@(s.SignalType != BuySignalType.None ? $"· {SignalLabel(s.SignalType)}" : "")</div>
+                            <div class="small text-muted mb-1">操作建议</div>
+                            <div class="small text-dark">@s.ActionAdvice</div>
+                            @if (s.PositionPct > 0)
+                            {
+                                <div class="mt-2 small"><span class="badge bg-info text-dark">建议仓位 @s.PositionPct%</span></div>
+                            }
                         </div>
                     </div>
+
+                    @* 2. 趋势 + 风险 *@
                     <div class="col-md-4">
                         <div class="p-3 rounded" style="background:#fff8f0">
-                            <div class="small text-muted mb-1">风险提示　风险分：<strong>@s.RiskScore</strong>/100</div>
+                            <div class="small text-muted mb-1">当前趋势</div>
+                            <div class="fw-bold mb-2 @TrendClass(s.Trend)">@TrendLabel(s.Trend)</div>
+                            <div class="small text-muted mb-1">风险提示　风险分：<strong class="@RiskClass(s.RiskScore)">@s.RiskScore</strong>/100</div>
                             @if (s.Reasons.Any())
                             {
                                 <ul class="mb-0 ps-3 small">
                                     @foreach (var r in s.Reasons) { <li>@r</li> }
                                 </ul>
                             }
-                            else { <span class="small text-success">暂无明显风险</span> }
                         </div>
                     </div>
+
+                    @* 3. 关键价位 *@
                     <div class="col-md-4">
                         <div class="p-3 rounded" style="background:#f0f8ff">
-                            <div class="small text-muted mb-1">价格参考</div>
+                            <div class="small text-muted mb-1">关键价位</div>
                             <table class="table table-sm mb-0 small">
                                 <tr><td class="text-muted">支撑位（MA20）</td><td class="fw-bold">@(s.SupportPrice?.ToString("F2") ?? "-")</td></tr>
                                 <tr><td class="text-danger">止损位（-2%）</td><td class="fw-bold text-danger">@(s.StopLossPrice?.ToString("F2") ?? "-")</td></tr>
@@ -97,6 +135,42 @@ else
                             </table>
                         </div>
                     </div>
+
+                    @* 4. 业绩分析 *@
+                    @if (item.Finance != null && item.Finance.Periods.Length > 0)
+                    {
+                        <div class="col-12">
+                            <div class="p-3 rounded" style="background:#f6fff6">
+                                <div class="small text-muted mb-2">业绩分析
+                                    @if (item.FinanceRiskAdj != 0)
+                                    {
+                                        var adjClass = item.FinanceRiskAdj > 0 ? "text-danger" : "text-success";
+                                        var adjSign  = item.FinanceRiskAdj > 0 ? "+" : "";
+                                        <span class="ms-2 @adjClass">风险调整：@adjSign@item.FinanceRiskAdj</span>
+                                    }
+                                </div>
+                                <div class="d-flex gap-4 flex-wrap small">
+                                    @for (int i = 0; i < item.Finance.Periods.Length; i++)
+                                    {
+                                        var yoy = item.Finance.ProfitYoy.Length > i ? item.Finance.ProfitYoy[i] : double.NaN;
+                                        var yoyClass = yoy > 0 ? "text-danger" : "text-success";
+                                        <div class="border rounded p-2" style="min-width:120px">
+                                            <div class="text-muted">@item.Finance.Periods[i]</div>
+                                            <div>净利润同比：<span class="fw-bold @yoyClass">@(double.IsNaN(yoy) ? "-" : $"{yoy:F1}%")</span></div>
+                                            <div>营收同比：<span class="fw-bold">@(item.Finance.RevenueYoy.Length > i ? $"{item.Finance.RevenueYoy[i]:F1}%" : "-")</span></div>
+                                        </div>
+                                    }
+                                </div>
+                                @if (item.FinanceReasons.Any())
+                                {
+                                    <ul class="mb-0 ps-3 small mt-2">
+                                        @foreach (var r in item.FinanceReasons) { <li>@r</li> }
+                                    </ul>
+                                }
+                            </div>
+                        </div>
+                    }
+
                 </div>
             </div>
         </div>
@@ -108,13 +182,16 @@ else
             <summary class="text-muted small">其他观望股票（@ignoreItems.Count 只）</summary>
             <div class="table-responsive mt-2">
                 <table class="table table-sm table-bordered">
-                    <thead class="table-light"><tr><th>代码</th><th>名称</th><th>收盘</th><th>风险分</th><th>原因</th></tr></thead>
+                    <thead class="table-light"><tr><th>代码</th><th>名称</th><th>收盘</th><th>趋势</th><th>风险分</th><th>原因</th></tr></thead>
                     <tbody>
                         @foreach (var item in ignoreItems)
                         {
                             <tr>
-                                <td>@item.Signal.Code</td><td>@item.Signal.Name</td>
-                                <td>@item.Signal.Close.ToString("F2")</td><td>@item.Signal.RiskScore</td>
+                                <td>@item.Signal.Code</td>
+                                <td>@item.Signal.Name</td>
+                                <td>@item.Signal.Close.ToString("F2")</td>
+                                <td class="@TrendClass(item.Signal.Trend)">@TrendLabel(item.Signal.Trend)</td>
+                                <td class="@RiskClass(item.Signal.RiskScore)">@item.Signal.RiskScore</td>
                                 <td class="small">@string.Join("、", item.Signal.Reasons)</td>
                             </tr>
                         }

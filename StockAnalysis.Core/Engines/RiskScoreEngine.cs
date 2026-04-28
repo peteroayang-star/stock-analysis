@@ -13,7 +13,7 @@ public class RiskScoreEngine
     /// <param name="bars">K 线列表</param>
     /// <param name="index">目标 K 线索引</param>
     /// <returns>风险分（0-100）和中文原因列表</returns>
-    public (int score, List<string> reasons) Score(List<StockBar> bars, int index)
+    public (int score, List<string> reasons) Score(List<StockBar> bars, int index, bool marketWeak = false)
     {
         var ind = _calc.Calculate(bars, index);
         if (ind == null) return (50, ["数据不足"]);
@@ -32,6 +32,17 @@ public class RiskScoreEngine
         if (bar.Close < ind.MA20)                        { score += 15; reasons.Add("收盘跌破MA20"); }
         // 涨幅过大：追高风险
         if (ind.ChangeRate > 9m)                         { score += 10; reasons.Add("涨幅过大追高风险"); }
+        // MACD死叉：趋势转弱
+        if (ind.DIF < ind.DEA && ind.MACD < 0)          { score += 10; reasons.Add("MACD死叉"); }
+        // 大盘弱势：整体市场风险
+        if (marketWeak)                                  { score += 20; reasons.Add("大盘弱势，市场整体风险高"); }
+
+        // 无任何风险因素时给基础分，避免风险分=0
+        if (score == 0)
+        {
+            score = 30;
+            reasons.Add("无明显信号，建议观望");
+        }
 
         return (Math.Min(score, 100), reasons);
     }

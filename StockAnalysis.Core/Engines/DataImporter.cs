@@ -44,7 +44,7 @@ public class DataImporter
                 High   = csv.GetField<decimal>(2),
                 Low    = csv.GetField<decimal>(3),
                 Close  = csv.GetField<decimal>(4),
-                Volume = csv.GetField<long>(5),
+                Volume = (long)csv.GetField<double>(5),
                 Amount = csv.GetField<decimal>(6)
             });
         }

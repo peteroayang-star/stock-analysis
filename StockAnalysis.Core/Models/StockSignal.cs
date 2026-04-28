@@ -13,6 +13,9 @@ public enum BuySignalType
     VolumeWashout
 }
 
+/// <summary>趋势方向</summary>
+public enum Trend { Up, Down, Sideways }
+
 /// <summary>交易决策</summary>
 public enum Decision
 {
@@ -64,4 +67,10 @@ public class StockSignal
     public decimal? StopLossPrice { get; set; }
     /// <summary>观察位（MA10 × 1.02），突破可加仓</summary>
     public decimal? WatchPrice { get; set; }
+    /// <summary>趋势方向</summary>
+    public Trend Trend { get; set; }
+    /// <summary>操作建议（当前该干嘛）</summary>
+    public string ActionAdvice { get; set; } = "";
+    /// <summary>建议仓位比例（0-100）</summary>
+    public int PositionPct { get; set; }
 }

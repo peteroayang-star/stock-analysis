@@ -4,6 +4,8 @@ using StockAnalysis.Core.Models;
 
 namespace StockAnalysis.Web.Services;
 
+public record RealtimeQuote(decimal Price, decimal ChangePct, decimal Open, decimal High, decimal Low, long Volume, decimal Amount);
+
 /// <summary>通过本地 AKShare HTTP 服务获取行情，并缓存到 Data/SystemStocks/</summary>
 public class AkShareDataService
 {
@@ -31,9 +33,19 @@ public class AkShareDataService
         var code = _dict.GetCode(input);
         if (code != null) return (code, _dict.GetName(code) ?? input);
 
-        // 6位数字直接当代码
+        // 6位数字直接当代码，尝试从字典或AKShare查名称
         if (input.Length == 6 && input.All(char.IsDigit))
-            return (input, input);
+        {
+            var dictName = _dict.GetName(input);
+            if (dictName != null) return (input, dictName);
+            try
+            {
+                var resp = await _http.GetStringAsync($"http://127.0.0.1:5100/name/{input}");
+                var json = JsonDocument.Parse(resp).RootElement;
+                return (input, json.GetProperty("name").GetString() ?? input);
+            }
+            catch { return (input, input); }
+        }
 
         // 调 AKShare /search 接口
         try
@@ -45,11 +57,36 @@ public class AkShareDataService
         catch { return (null, null); }
     }
 
+    public async Task<RealtimeQuote?> TryGetRealtimeAsync(string code)
+    {
+        try
+        {
+            var json = await _http.GetStringAsync($"http://127.0.0.1:5100/realtime/{code}");
+            var doc = JsonDocument.Parse(json).RootElement;
+            return new RealtimeQuote(
+                doc.GetProperty("price").GetDecimal(),
+                doc.GetProperty("change_pct").GetDecimal(),
+                doc.GetProperty("open").GetDecimal(),
+                doc.GetProperty("high").GetDecimal(),
+                doc.GetProperty("low").GetDecimal(),
+                (long)doc.GetProperty("volume").GetDouble(),
+                doc.GetProperty("amount").GetDecimal()
+            );
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// 尝试获取股票行情
+    /// </summary>
+    /// <param name="code"></param>
+    /// <param name="name"></param>
+    /// <returns></returns>
     public async Task<List<StockBar>?> TryGetBarsAsync(string code, string name)
     {
         var cacheFile = Path.Combine(_cachePath, $"{code}.csv");
 
-        if (File.Exists(cacheFile) && File.GetLastWriteTime(cacheFile) > DateTime.Now.AddDays(-1))
+        if (File.Exists(cacheFile) && File.GetLastWriteTime(cacheFile).Date == DateTime.Today)
             return _importer.ImportCsv(cacheFile, code, name);
 
         try

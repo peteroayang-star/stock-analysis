@@ -19,6 +19,10 @@ builder.Services.AddScoped<LocalStockDataService>();
 builder.Services.AddSingleton<StockDictionaryService>();
 builder.Services.AddHttpClient<AkShareDataService>();
 builder.Services.AddScoped<AkShareDataService>();
+builder.Services.AddHttpClient<TencentRealTimeService>();
+builder.Services.AddScoped<TencentRealTimeService>();
+builder.Services.AddHttpClient<FinanceDataService>();
+builder.Services.AddScoped<FinanceDataService>();
 builder.Services.AddScoped<MarketDataService>();
 
 var app = builder.Build();

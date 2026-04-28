@@ -19,7 +19,8 @@ public class IndicatorCalculator
         decimal VolMA5, decimal VolMA10,
         decimal High20,
         decimal ChangeRate,
-        decimal UpperShadowRatio
+        decimal UpperShadowRatio,
+        decimal MACD, decimal DIF, decimal DEA
     );
 
     /// <summary>
@@ -42,7 +43,24 @@ public class IndicatorCalculator
         var range = bar.High - bar.Low;
         var upperShadow = range == 0 ? 0 : (bar.High - Math.Max(bar.Open, bar.Close)) / range;
 
+        // MACD：EMA12、EMA26、DIF、DEA(9)、MACD柱
+        var ema12 = CalcEma(bars, index, 12);
+        var ema26 = CalcEma(bars, index, 26);
+        var dif = ema12 - ema26;
+        var prevDif = CalcEma(bars, index - 1, 12) - CalcEma(bars, index - 1, 26);
+        var dea = dif * (2m / 10) + prevDif * (8m / 10); // 简化DEA
+        var macd = (dif - dea) * 2;
+
         return new Indicators(ma(5), ma(10), ma(20), volMa(5), volMa(10),
-            high20, changeRate, upperShadow);
+            high20, changeRate, upperShadow, macd, dif, dea);
+    }
+
+    private static decimal CalcEma(List<StockBar> bars, int index, int period)
+    {
+        var k = 2m / (period + 1);
+        var ema = bars[index - period + 1].Close;
+        for (int i = index - period + 2; i <= index; i++)
+            ema = bars[i].Close * k + ema * (1 - k);
+        return ema;
     }
 }
