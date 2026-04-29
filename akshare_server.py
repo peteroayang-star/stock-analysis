@@ -5,9 +5,13 @@ AKShare 行情数据服务
   GET /stock/<code>       返回 CSV 格式行情数据
   GET /search/<name>      按名称查询股票代码，返回 JSON
 """
-import sys, io
+import sys, io, os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# 清除代理设置，避免 akshare 请求被代理拦截
+for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+    os.environ.pop(_k, None)
 
 from flask import Flask, Response, jsonify
 import akshare as ak

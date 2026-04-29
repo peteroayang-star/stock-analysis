@@ -2,7 +2,7 @@ using StockAnalysis.Core.Models;
 
 namespace StockAnalysis.Core.Engines;
 
-/// <summary>股票分析主入口，整合信号检测、风险评分和交易决策</summary>
+/// <summary>股票分析主入口，只负责流程编排，不写具体规则</summary>
 public class StockAnalyzer
 {
     private readonly BuySignalDetector _signal;
@@ -11,11 +11,11 @@ public class StockAnalyzer
     private readonly StockFilter _filter;
     private readonly StockStabilityFilter _stability = new();
     private readonly IndicatorCalculator _calc = new();
+    private readonly VolumeEngine _volume = new();
+    private readonly CycleDetector _cycle = new();
 
-    /// <summary>最近一次分析被过滤的原因，null 表示未被过滤</summary>
     public string? LastExcludeReason { get; private set; }
 
-    /// <param name="cfg">应用配置</param>
     public StockAnalyzer(AppConfig cfg)
     {
         _signal = new BuySignalDetector(cfg.Signal);
@@ -23,12 +23,6 @@ public class StockAnalyzer
         _filter = new StockFilter(cfg.Filter);
     }
 
-    /// <summary>
-    /// 分析一只股票的 K 线数据，返回交易决策
-    /// </summary>
-    /// <param name="bars">K 线列表（按日期升序，至少 20 根）</param>
-    /// <param name="mode">交易模式：选股或持仓</param>
-    /// <returns>信号列表（0 或 1 条）</returns>
     public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate, List<StockBar>? marketBars = null)
     {
         int last = bars.Count - 1;
@@ -39,50 +33,47 @@ public class StockAnalyzer
         var excludeReason = _filter.ShouldExclude(bar.Code, bar.Name, bars);
         if (excludeReason != null) { LastExcludeReason = excludeReason; return []; }
 
-        var (signalType, signalReason) = _signal.Detect(bars, last);
+        // 1. 指标
+        var ind = _calc.Calculate(bars, last);
 
-        // 大盘弱势判断：上证指数MA5 < MA20
+        // 2. 大盘弱势
         bool marketWeak = false;
         if (marketBars != null && marketBars.Count >= 20)
         {
-            var mi = marketBars.Count - 1;
-            var mInd = _calc.Calculate(marketBars, mi);
+            var mInd = _calc.Calculate(marketBars, marketBars.Count - 1);
             marketWeak = mInd != null && mInd.MA5 < mInd.MA20;
         }
 
-        var (riskScore, riskReasons) = _risk.Score(bars, last, marketWeak);
+        // 3. 量价 → 周期 → 信号 → 风险
+        var vol = _volume.Analyze(bars, last);
+        var cycle = _cycle.Detect(bars, last, vol);
+        var (signalType, signalReason) = _signal.Detect(bars, last, vol, cycle);
+        var (riskScore, riskReasons) = _risk.Score(bars, last, vol, marketWeak);
 
-        var ind = _calc.Calculate(bars, last);
-        var reasons = new List<string>();
-        if (signalReason != "") reasons.Add(signalReason);
-        reasons.AddRange(riskReasons);
-
-        // 趋势判断
+        // 4. 趋势
         var trend = ind != null && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20 ? Trend.Up
                   : ind != null && ind.MA5 < ind.MA10 && ind.MA10 < ind.MA20 ? Trend.Down
                   : Trend.Sideways;
 
-        // 趋势阶段判断
-        var trendStage = TrendStage.Sideways;
-        if (ind != null)
-        {
-            if (ind.MA5 < ind.MA10 && ind.MA10 < ind.MA20) trendStage = TrendStage.Down;
-            else if (ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20)
-            {
-                // 用MA5斜率和价格位置区分主升阶段
-                var prevInd = last >= 20 ? _calc.Calculate(bars, last - 1) : null;
-                if (prevInd == null) trendStage = TrendStage.EarlyUp;
-                else if (ind.MA5 > prevInd.MA5 * 1.005m) trendStage = TrendStage.MidUp;
-                else if (bar.Close > ind.MA20 * 1.20m) trendStage = TrendStage.LateUp;
-                else trendStage = TrendStage.EarlyUp;
-            }
-        }
+        var trendStage = CalcTrendStage(bars, last, ind);
 
-        var dec = mode == TradingMode.Portfolio
-            ? _decision.DecideHolding(riskScore)
-            : _decision.DecideEntry(signalType, riskScore, trend, ind != null && bar.Close >= ind.MA10 * 1.02m);
+        // 5. 强制规则所需标志
+        bool belowMA20 = ind != null && bar.Close < ind.MA20;
+        bool macdDead = riskReasons.Any(r => r.Contains("MACD死叉"));
+        decimal stopLoss = ind != null ? Math.Round(ind.MA20 * 0.98m, 2) : 0;
+        bool belowStopLoss = stopLoss > 0 && bar.Close <= stopLoss;
 
-        // 稳定性过滤：必要条件不满足或评分<60，降级决策
+        // 6. 决策
+        Decision dec;
+        string? forceReason;
+        if (mode == TradingMode.Portfolio)
+            dec = _decision.DecideHolding(riskScore, cycle, belowStopLoss);
+        else
+            (dec, forceReason) = _decision.DecideEntry(signalType, riskScore, trend,
+                ind != null && bar.Close >= ind.MA10 * 1.02m,
+                cycle, vol, belowMA20, macdDead, belowStopLoss);
+
+        // 7. 稳定性过滤
         if (mode == TradingMode.Candidate)
         {
             var (stabilityScore, passRequired) = _stability.Evaluate(bars, last);
@@ -90,53 +81,97 @@ public class StockAnalyzer
             {
                 if (dec == Decision.Buy || dec == Decision.TryBuy)
                     dec = stabilityScore < 40 ? Decision.Ignore : Decision.Watch;
-                reasons.Add($"稳定性评分{stabilityScore}，信号降级");
+                riskReasons.Add($"稳定性评分{stabilityScore}，信号降级");
             }
         }
 
-        // 操作建议和仓位
-        var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend);
+        // 8. 合并原因（最多3条）
+        var reasons = new List<string>();
+        if (signalReason != "") reasons.Add(signalReason);
+        reasons.AddRange(riskReasons);
+        if (mode == TradingMode.Portfolio && dec == Decision.Sell && cycle.Cycle == MarketCycle.End)
+            reasons.Insert(0, cycle.Description);
 
-        // 检测14天内是否触及涨停（最高价涨幅≥9.5%）
-        bool hadLimitUp = false;
+        // 9. 目标价（空仓时清除）
+        decimal? targetPrice = (dec == Decision.Ignore || dec == Decision.Sell)
+            ? null : ind != null ? Math.Round(ind.MA10 * 1.08m, 2) : null;
+
+        // 10. 辅助标记
+        bool supportBroken = belowMA20;
+        bool structureAbnormal = supportBroken && (ind == null || bar.Close < ind.MA20 * 0.95m);
+
+        // 11. 操作建议
+        var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol);
+
+        // 12. 信号强度
+        string strength = (belowMA20 && macdDead) || cycle.Cycle == MarketCycle.End ? "弱"
+                        : dec == Decision.Buy ? "强"
+                        : dec == Decision.Watch || dec == Decision.TryBuy ? "中"
+                        : "弱";
+
+        // 13. 14天涨停次数
+        int limitUpCount = 0;
         int checkDays = Math.Min(14, last);
         for (int i = last - checkDays + 1; i <= last; i++)
-        {
             if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
-            { hadLimitUp = true; break; }
-        }
+                limitUpCount++;
 
         return [new StockSignal
         {
             Code = bar.Code, Name = bar.Name, Date = bar.Date, Close = bar.Close,
             SignalType = signalType, RiskScore = riskScore, Decision = dec,
-            Reasons = reasons,
+            Reasons = reasons.Take(3).ToList(),
             SupportPrice  = ind != null ? Math.Round(ind.MA20, 2) : null,
-            StopLossPrice = ind != null ? Math.Round(ind.MA20 * 0.98m, 2) : null,
+            StopLossPrice = stopLoss > 0 ? stopLoss : null,
             WatchPrice    = ind != null ? Math.Round(ind.MA10 * 1.02m, 2) : null,
-            TargetPrice   = ind != null ? Math.Round(ind.MA10 * 1.08m, 2) : null,
-            Trend = trend,
-            TrendStage = trendStage,
-            ActionAdvice = action,
-            PositionPct = position,
-            HadLimitUpIn14Days = hadLimitUp
+            TargetPrice   = targetPrice,
+            Trend = trend, TrendStage = trendStage,
+            ActionAdvice = action, PositionPct = position,
+            LimitUpCountIn14Days = limitUpCount,
+            AvgVolume10 = ind != null ? (long)ind.VolMA10 : 0,
+            SupportBroken = supportBroken,
+            StructureAbnormal = structureAbnormal,
+            SignalStrength = strength
         }];
     }
 
-    private (string action, int position) GenerateAdvice(Decision dec, BuySignalType signal, int risk, Trend trend)
+    private TrendStage CalcTrendStage(List<StockBar> bars, int last, IndicatorCalculator.Indicators? ind)
+    {
+        if (ind == null) return TrendStage.Sideways;
+        if (ind.MA5 < ind.MA10 && ind.MA10 < ind.MA20) return TrendStage.Down;
+        if (ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20)
+        {
+            var prevInd = last >= 20 ? _calc.Calculate(bars, last - 1) : null;
+            if (prevInd == null) return TrendStage.EarlyUp;
+            if (ind.MA5 > prevInd.MA5 * 1.005m) return TrendStage.MidUp;
+            if (bars[last].Close > ind.MA20 * 1.20m) return TrendStage.LateUp;
+            return TrendStage.EarlyUp;
+        }
+        return TrendStage.Sideways;
+    }
+
+    private (string action, int position) GenerateAdvice(
+        Decision dec, BuySignalType signal, int risk, Trend trend,
+        CycleResult cycle, VolumeResult vol)
     {
         return dec switch
         {
-            Decision.Buy => signal == BuySignalType.VolumeBreakout
-                ? ("倍量突破确认，可轻仓试错，突破后加仓", 30)
-                : signal == BuySignalType.TrendPullback
-                ? ("上涨趋势仍在，回调未破关键均线，可轻仓试错，建议仓位20%-30%", 25)
-                : ("信号出现，可小仓位介入，观察后续走势", 20),
-            Decision.TryBuy => ("价格突破观察位且趋势向上，可小仓参与（10%-20%），严格止损", 15),
-            Decision.Watch => ("暂时观望，等待更明确信号或风险降低", 0),
-            Decision.Hold => ("持有不动，继续观察趋势", 0),
-            Decision.Reduce => ("风险上升，建议减仓50%，保留底仓", 0),
-            Decision.Sell => ("触发止损，立即清仓离场", 0),
+            Decision.Buy when signal == BuySignalType.VolumeBreakout
+                => ("倍量突破确认，可轻仓试错，突破后加仓", 30),
+            Decision.Buy when signal == BuySignalType.TrendPullback
+                => ("上涨趋势仍在，回调未破关键均线，可轻仓试错", 25),
+            Decision.Buy
+                => ("信号出现，可小仓位介入，观察后续走势", 20),
+            Decision.TryBuy
+                => ("价格突破观察位且趋势向上，可小仓参与（10%-20%），严格止损", 15),
+            Decision.Watch
+                => ("暂时观望，等待更明确信号或风险降低", 0),
+            Decision.Hold
+                => ("持有不动，继续观察趋势", 0),
+            Decision.Reduce
+                => ("风险上升，建议减仓50%，保留底仓", 0),
+            Decision.Sell
+                => ("触发止损，立即清仓离场", 0),
             _ => ("不参与，无明确信号", 0)
         };
     }

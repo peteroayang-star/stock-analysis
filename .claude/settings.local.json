@@ -15,7 +15,32 @@
       "Bash(netstat -ano)",
       "Bash(cat)",
       "Bash(python /tmp/gen_csv.py)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(dir:*)",
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(powershell:*)",
+      "Bash(python3:*)",
+      "Bash(dotnet script)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\n优化选股分析系统：实时行情、业绩分析、信号改进\n\n- 新增腾讯实时行情接口（GBK编码修复），补充今日K线数据\n- 新增业绩分析模块（FinanceDataService），结合净利润/营收同比调整风险分\n- 修复凹量洗盘bug，加入MACD金叉信号检测\n- 倍量突破加阳线确认，缩量回踩加下影线承接条件\n- 加入大盘联动风险（上证MA5<MA20时个股风险分+20）\n- 上涨趋势+低风险无信号时给Watch而非Ignore\n- 交易决策面板重构：展示趋势、操作建议、仓位、业绩数据\n- 新增/name/<code>接口，支持按代码反查股票名称\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(echo \"Started in background, PID: $!\")",
+      "Bash(findstr :5110)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 新增轻仓试错、趋势回调、机会池看板、信号记录、退出规则等功能\n\n- 新增 TryBuy/TrendPullback 决策和信号类型\n- 新增 TrendStage 趋势阶段判断（主升初/中/末期、震荡、下跌）\n- 新增机会池看板（/Opportunity），支持批量分析和分组展示\n- 新增 SignalLogService，每次分析自动记录到 signal_log.json\n- 回测页面支持直接输入股票代码（复用行情接口）\n- 关键价位卡片新增目标价和退出规则说明\n- 页面标题和页脚汉化\n- 实时行情自动轮询刷新（10秒）及手动刷新按钮\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git config:*)",
+      "Bash(findstr:*)",
+      "Bash(git -c http.proxy=\"\" -c https.proxy=\"\" push)",
+      "Bash(git remote:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nupdate: 更新实时行情服务、akshare服务及启动脚本，移除旧CSV数据文件\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "WebFetch(domain:money.finance.sina.com.cn)",
+      "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" status)",
+      "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" remote -v)",
+      "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" add StockAnalysis.Core/Engines/Backtester.cs StockAnalysis.Core/Engines/IndicatorCalculator.cs StockAnalysis.Core/Engines/StockAnalyzer.cs StockAnalysis.Core/Engines/StockStabilityFilter.cs StockAnalysis.Core/Models/StockSignal.cs StockAnalysis.Web/Controllers/StockController.cs StockAnalysis.Web/Services/FinanceDataService.cs StockAnalysis.Web/Views/Stock/Result.cshtml akshare_server.py)",
+      "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" commit -m \"$\\(cat <<''EOF''\nfeat: 信号稳定性过滤、涨停提示、业绩数据优化及bug修复\n\n- 新增 StockStabilityFilter：趋势一致性+波动率+反向波动组合评分，评分<60降级决策\n- 14天内触及涨停改为标签提示，不再过滤股票\n- StockSignal 新增 HadLimitUpIn14Days 字段，Result 页面显示红色标签\n- 修复 IndicatorCalculator/Backtester/StockAnalyzer 索引越界问题（守卫统一为26/28）\n- akshare_server: stock_financial_abstract 缺最新季报时自动用 stock_yjbb_em 补充\n- FinanceDataService: 修复 null 值导致解析异常返回 null 的问题\n- 财务数据列按日期降序排列，确保取最新4期\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" push)"
     ]
   }
 }

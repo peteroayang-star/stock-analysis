@@ -84,6 +84,14 @@ public class StockSignal
     public string ActionAdvice { get; set; } = "";
     /// <summary>建议仓位比例（0-100）</summary>
     public int PositionPct { get; set; }
-    /// <summary>14天内是否触及涨停</summary>
-    public bool HadLimitUpIn14Days { get; set; }
+    /// <summary>14天内触及涨停次数</summary>
+    public int LimitUpCountIn14Days { get; set; }
+    /// <summary>近10日平均成交量（手）</summary>
+    public long AvgVolume10 { get; set; }
+    /// <summary>支撑位（MA20）是否已跌破</summary>
+    public bool SupportBroken { get; set; }
+    /// <summary>价格结构异常（深度跌破支撑）</summary>
+    public bool StructureAbnormal { get; set; }
+    /// <summary>信号强度：强/中/弱</summary>
+    public string SignalStrength { get; set; } = "";
 }

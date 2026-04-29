@@ -36,21 +36,19 @@ public record BacktestSummary(
 public class Backtester
 {
     private readonly BuySignalDetector _detector;
+    private readonly VolumeEngine _volume = new();
+    private readonly CycleDetector _cycle = new();
 
-    /// <param name="cfg">信号检测参数配置</param>
     public Backtester(SignalConfig cfg) => _detector = new BuySignalDetector(cfg);
 
-    /// <summary>
-    /// 对 K 线列表执行回测，每个信号点记录后续 1/3/5/10 日收益
-    /// </summary>
-    /// <param name="bars">K 线列表（按日期升序）</param>
-    /// <returns>每个信号的回测结果列表</returns>
     public List<BacktestResult> Run(List<StockBar> bars)
     {
         var results = new List<BacktestResult>();
         for (int i = 26; i < bars.Count - 10; i++)
         {
-            var (signalType, _) = _detector.Detect(bars, i);
+            var vol = _volume.Analyze(bars, i);
+            var cycle = _cycle.Detect(bars, i, vol);
+            var (signalType, _) = _detector.Detect(bars, i, vol, cycle);
             if (signalType == BuySignalType.None) continue;
 
             var entry = bars[i].Close;

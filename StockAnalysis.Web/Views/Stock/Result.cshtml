@@ -106,23 +106,43 @@ else
             <div class="card-header d-flex align-items-center gap-2 bg-white flex-wrap">
                 <span class="fw-bold fs-5">@s.Name <small class="text-muted">@s.Code</small></span>
                 <span class="badge @DecisionBadge(s.Decision) ms-2 fs-6">@DecisionLabel(s.Decision)</span>
-                @if (s.HadLimitUpIn14Days)
+                @if (s.LimitUpCountIn14Days > 0)
                 {
-                    <span class="badge bg-danger ms-1">14天内触及涨停</span>
+                    <span class="badge bg-danger ms-1">14天内触及涨停 @s.LimitUpCountIn14Days 次</span>
                 }
                 @if (item.RealTime != null)
                 {
                     var rt = item.RealTime;
                     var pctClass = rt.ChangePct >= 0 ? "text-danger" : "text-success";
                     var pctSign  = rt.ChangePct >= 0 ? "+" : "";
-                    <span class="ms-auto d-flex gap-3 align-items-center small" data-rt="@s.Code">
-                        <span>当前价：<strong class="rt-price">@rt.Price.ToString("F2")</strong></span>
-                        <span class="rt-pct fw-bold @pctClass">@pctSign@rt.ChangePct.ToString("F2")%</span>
-                        <span class="text-muted">今开 <span class="rt-open">@rt.Open.ToString("F2")</span></span>
-                        <span class="text-muted">最高 <span class="rt-high">@rt.High.ToString("F2")</span></span>
-                        <span class="text-muted">最低 <span class="rt-low">@rt.Low.ToString("F2")</span></span>
-                        <span class="text-muted">昨收 <span class="rt-preclose">@rt.PreClose.ToString("F2")</span></span>
-                    </span>
+                    // 量价分析
+                    var isUp = rt.Price >= rt.PreClose;
+                    var volRatio = s.AvgVolume10 > 0 ? (double)rt.Volume / s.AvgVolume10 : 0;
+                    var volLabel = volRatio >= 1.5 ? "放量" : (volRatio <= 0.7 ? "缩量" : "平量");
+                    var volPriceLabel = volLabel + (isUp ? "上涨" : "下跌");
+                    var volPriceClass = volLabel == "放量" && isUp ? "text-danger fw-bold"
+                                      : volLabel == "放量" && !isUp ? "text-success fw-bold"
+                                      : volLabel == "缩量" && isUp ? "text-danger"
+                                      : "text-muted";
+                    var amountStr = rt.Amount >= 10000 ? $"{rt.Amount/10000:F1}亿" : $"{rt.Amount:F0}万";
+                    <div class="ms-auto d-flex flex-column gap-1 small" data-rt="@s.Code">
+                        <div class="d-flex gap-3 align-items-center">
+                            <span>当前价：<strong class="rt-price">@rt.Price.ToString("F2")</strong></span>
+                            <span class="rt-pct fw-bold @pctClass">@pctSign@rt.ChangePct.ToString("F2")%</span>
+                            <span class="text-muted">今开 <span class="rt-open">@rt.Open.ToString("F2")</span></span>
+                            <span class="text-muted">最高 <span class="rt-high">@rt.High.ToString("F2")</span></span>
+                            <span class="text-muted">最低 <span class="rt-low">@rt.Low.ToString("F2")</span></span>
+                            <span class="text-muted">昨收 <span class="rt-preclose">@rt.PreClose.ToString("F2")</span></span>
+                        </div>
+                        <div class="d-flex gap-3 align-items-center">
+                            <span class="text-muted">当日成交量 <span class="rt-volume">@((rt.Volume/100).ToString("N0"))手</span></span>
+                            <span class="text-muted">当日成交额 <span class="rt-amount">@amountStr</span></span>
+                            @if (rt.Turnover > 0) {
+                                <span class="text-muted">换手率 <span class="rt-turnover">@rt.Turnover.ToString("F2")%</span></span>
+                            }
+                            <span class="@volPriceClass rt-volprice">@volPriceLabel</span>
+                        </div>
+                    </div>
                 }
                 else
                 {
@@ -135,10 +155,26 @@ else
                     @* 1. 当前结论 + 操作建议 *@
                     <div class="col-md-4">
                         <div class="p-3 rounded" style="background:#f8f9fa">
-                            <div class="small text-muted mb-1">当前结论</div>
+                            @{
+                                var stateLabel = s.Decision switch {
+                                    Decision.Buy or Decision.TryBuy or Decision.Hold => "持有",
+                                    Decision.Watch or Decision.Reduce => "观察",
+                                    _ => "空仓"
+                                };
+                                var stateBadge = stateLabel == "持有" ? "bg-danger"
+                                              : stateLabel == "观察" ? "bg-warning text-dark"
+                                              : "bg-secondary";
+                                var trendStrength = s.Trend == Trend.Up ? "偏强"
+                                                  : s.Trend == Trend.Down ? "偏弱" : "中性";
+                                var trendJudge = $"{TrendLabel(s.Trend)}·{trendStrength}";
+                            }
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="small text-muted">当前状态</span>
+                                <span class="badge @stateBadge">@stateLabel</span>
+                            </div>
                             <div class="fw-bold fs-6 mb-2">@DecisionLabel(s.Decision)　@(s.SignalType != BuySignalType.None ? $"· {SignalLabel(s.SignalType)}" : "")</div>
-                            <div class="small text-muted mb-1">趋势阶段：<span class="fw-bold">@TrendStageLabel(s.TrendStage)</span></div>
-                            <div class="small text-muted mb-1">操作建议</div>
+                            <div class="small text-muted mb-1">趋势判断：<span class="fw-bold @TrendClass(s.Trend)">@trendJudge</span>　<span class="text-muted">@TrendStageLabel(s.TrendStage)</span></div>
+                            <div class="small text-muted mb-1 mt-2">操作建议</div>
                             <div class="small text-dark">@s.ActionAdvice</div>
                             @if (s.Decision == Decision.Ignore && s.RiskScore < 30)
                             {
@@ -156,11 +192,22 @@ else
                         <div class="p-3 rounded" style="background:#fff8f0">
                             <div class="small text-muted mb-1">当前趋势</div>
                             <div class="fw-bold mb-2 @TrendClass(s.Trend)">@TrendLabel(s.Trend)</div>
-                            <div class="small text-muted mb-1">风险提示　风险分：<strong class="@RiskClass(s.RiskScore)">@s.RiskScore</strong>/100</div>
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span class="small text-muted">风险分：<strong class="@RiskClass(s.RiskScore)">@s.RiskScore</strong>/100</span>
+                                @{
+                                    var strengthBadge = s.SignalStrength == "强" ? "bg-danger"
+                                                      : s.SignalStrength == "中" ? "bg-warning text-dark"
+                                                      : "bg-secondary";
+                                }
+                                @if (!string.IsNullOrEmpty(s.SignalStrength))
+                                {
+                                    <span class="badge @strengthBadge">@s.SignalStrength&#x4FE1;&#x53F7;</span>
+                                }
+                            </div>
                             @if (s.Reasons.Any())
                             {
                                 <ul class="mb-0 ps-3 small">
-                                    @foreach (var r in s.Reasons) { <li>@r</li> }
+                                    @foreach (var r in s.Reasons.Take(3)) { <li>@r</li> }
                                 </ul>
                             }
                         </div>
@@ -171,7 +218,15 @@ else
                         <div class="p-3 rounded" style="background:#f0f8ff">
                             <div class="small text-muted mb-1">关键价位</div>
                             <table class="table table-sm mb-0 small">
-                                <tr><td class="text-muted">支撑位（MA20）</td><td class="fw-bold">@(s.SupportPrice?.ToString("F2") ?? "-")</td></tr>
+                                <tr>
+                                    <td class="@(s.SupportBroken ? "text-danger" : "text-muted")">
+                                        支撑位（MA20）@(s.SupportBroken ? "⚠ 已跌破" : "")
+                                    </td>
+                                    <td class="fw-bold @(s.SupportBroken ? "text-danger" : "")">
+                                        @(s.SupportPrice?.ToString("F2") ?? "-")
+                                        @if (s.StructureAbnormal) { <span class="badge bg-danger ms-1">结构异常</span> }
+                                    </td>
+                                </tr>
                                 <tr>
                                     <td class="text-danger">止损位（-2%）</td>
                                     <td class="fw-bold text-danger">
@@ -183,10 +238,16 @@ else
                                     </td>
                                 </tr>
                                 <tr><td class="text-muted">观察位（MA10+2%）</td><td class="fw-bold">@(s.WatchPrice?.ToString("F2") ?? "-")</td></tr>
-                                <tr><td class="text-success">目标价（MA10+8%）</td><td class="fw-bold text-success">@(s.TargetPrice?.ToString("F2") ?? "-")</td></tr>
+                                @if (s.TargetPrice.HasValue)
+                                {
+                                    <tr><td class="text-success">目标价（MA10+8%）</td><td class="fw-bold text-success">@s.TargetPrice.Value.ToString("F2")</td></tr>
+                                }
                             </table>
                             <div class="small text-muted mt-2">
-                                <div>• 突破观察位可考虑加仓</div>
+                                @if (s.Decision != Decision.Ignore && s.Decision != Decision.Sell)
+                                {
+                                    <div>• 突破观察位可考虑加仓</div>
+                                }
                                 <div>• 跌破止损位应立即离场</div>
                                 <div>• 假突破：重新跌破支撑位则观望</div>
                             </div>
