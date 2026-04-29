@@ -10,7 +10,9 @@ public enum BuySignalType
     /// <summary>缩量回踩：多头排列下缩量回踩MA10</summary>
     PullbackSupport,
     /// <summary>凹量洗盘：连续N日缩量后收盘守住MA20</summary>
-    VolumeWashout
+    VolumeWashout,
+    /// <summary>趋势回调：上涨趋势中缩量回调至关键均线后转强</summary>
+    TrendPullback
 }
 
 /// <summary>趋势方向</summary>
@@ -21,6 +23,8 @@ public enum Decision
 {
     /// <summary>可以买入</summary>
     Buy,
+    /// <summary>轻仓试错</summary>
+    TryBuy,
     /// <summary>观察等待</summary>
     Watch,
     /// <summary>持有不动</summary>
@@ -32,6 +36,9 @@ public enum Decision
     /// <summary>暂时观望，不参与</summary>
     Ignore
 }
+
+/// <summary>趋势阶段</summary>
+public enum TrendStage { EarlyUp, MidUp, LateUp, Sideways, Down }
 
 /// <summary>交易模式</summary>
 public enum TradingMode
@@ -67,6 +74,10 @@ public class StockSignal
     public decimal? StopLossPrice { get; set; }
     /// <summary>观察位（MA10 × 1.02），突破可加仓</summary>
     public decimal? WatchPrice { get; set; }
+    /// <summary>目标价（MA10 × 1.08），止盈参考</summary>
+    public decimal? TargetPrice { get; set; }
+    /// <summary>趋势阶段</summary>
+    public TrendStage TrendStage { get; set; }
     /// <summary>趋势方向</summary>
     public Trend Trend { get; set; }
     /// <summary>操作建议（当前该干嘛）</summary>

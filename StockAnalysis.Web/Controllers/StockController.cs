@@ -13,19 +13,41 @@ public class StockController : Controller
     private readonly MarketDataService _marketData;
     private readonly TencentRealTimeService _realTime;
     private readonly FinanceDataService _finance;
+    private readonly SignalLogService _log;
     private readonly RiskReasonAnalyzer _reasoner = new();
     private readonly DecisionRanker _ranker = new();
 
-    public StockController(StockAnalyzer analyzer, DataImporter importer, MarketDataService marketData, TencentRealTimeService realTime, FinanceDataService finance)
+    public StockController(StockAnalyzer analyzer, DataImporter importer, MarketDataService marketData, TencentRealTimeService realTime, FinanceDataService finance, SignalLogService log)
     {
         _analyzer = analyzer;
         _importer = importer;
         _marketData = marketData;
         _realTime = realTime;
         _finance = finance;
+        _log = log;
     }
 
     [HttpGet] public IActionResult Index() => View();
+
+    [HttpGet]
+    public async Task<IActionResult> RealTimeQuotes([FromQuery] string codes)
+    {
+        if (string.IsNullOrWhiteSpace(codes)) return Json(new { });
+        var result = new Dictionary<string, object?>();
+        foreach (var code in codes.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var rt = await _realTime.GetAsync(code.Trim());
+            result[code.Trim()] = rt == null ? null : new {
+                price    = rt.Price,
+                changePct = rt.ChangePct,
+                open     = rt.Open,
+                high     = rt.High,
+                low      = rt.Low,
+                preClose = rt.PreClose
+            };
+        }
+        return Json(result);
+    }
 
     [HttpPost]
     public async Task<IActionResult> Index(string stock, string? dataSource, IFormFile? file)
@@ -108,6 +130,7 @@ public class StockController : Controller
                 FinanceReasons = finReasons
             });
         }
+        _log.Append(items.Select(x => x.Signal));
         return View("Result", new AnalysisViewModel { Items = items, Mode = TradingMode.Candidate });
     }
 }

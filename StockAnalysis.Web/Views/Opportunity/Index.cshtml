@@ -1,0 +1,18 @@
+@{
+    ViewData["Title"] = "机会池看板";
+}
+
+<h4 class="mb-1">机会池看板</h4>
+<p class="text-muted small mb-3">输入多个股票代码或名称（逗号/换行分隔），批量分析并按机会优先级排列</p>
+<div class="card" style="max-width:520px">
+    <div class="card-body">
+        <form method="post">
+            <div class="mb-3">
+                <textarea name="stocks" class="form-control" rows="4"
+                    placeholder="每行或逗号分隔，例如：&#10;中船防务&#10;000001,600519,贵州茅台" required></textarea>
+            </div>
+            @Html.ValidationSummary(false, "", new { @class = "text-danger small" })
+            <button type="submit" class="btn btn-primary btn-lg w-100">批量分析</button>
+        </form>
+    </div>
+</div>

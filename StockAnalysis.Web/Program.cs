@@ -24,6 +24,7 @@ builder.Services.AddScoped<TencentRealTimeService>();
 builder.Services.AddHttpClient<FinanceDataService>();
 builder.Services.AddScoped<FinanceDataService>();
 builder.Services.AddScoped<MarketDataService>();
+builder.Services.AddSingleton<SignalLogService>();
 
 var app = builder.Build();
 

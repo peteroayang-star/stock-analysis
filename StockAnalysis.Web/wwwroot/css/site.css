@@ -26,6 +26,7 @@ body {
 
 /* 决策卡左边框颜色 */
 .decision-buy    { border-left: 4px solid #198754 !important; }
+.decision-trybuy { border-left: 4px solid #0dcaf0 !important; }
 .decision-watch  { border-left: 4px solid #ffc107 !important; }
 .decision-hold   { border-left: 4px solid #0d6efd !important; }
 .decision-reduce { border-left: 4px solid #fd7e14 !important; }

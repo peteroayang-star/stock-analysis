@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - StockAnalysis.Web</title>
+    <title>@ViewData["Title"] - 股票分析系统</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/StockAnalysis.Web.styles.css" asp-append-version="true" />
@@ -37,6 +37,9 @@
                         <li class="nav-item">
                             <a class="@nav("Backtest","Index")" asp-controller="Backtest" asp-action="Index">历史回测</a>
                         </li>
+                        <li class="nav-item">
+                            <a class="@nav("Opportunity","Index")" asp-controller="Opportunity" asp-action="Index">机会池</a>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -69,7 +72,7 @@
 
     <footer class="border-top footer text-muted">
         <div class="container">
-            &copy; 2026 - StockAnalysis.Web - <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+            &copy; 2026 股票分析系统 · 数据仅供参考，不构成投资建议
         </div>
     </footer>
     <script src="~/lib/jquery/dist/jquery.min.js"></script>

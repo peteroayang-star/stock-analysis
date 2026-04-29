@@ -6,3 +6,6 @@ appsettings.Development.json
 Data/SystemStocks/
 __pycache__/
 *.pyc
+signal_log.json
+.claude/
+nul

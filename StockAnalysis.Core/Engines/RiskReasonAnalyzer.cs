@@ -41,6 +41,8 @@ public class RiskReasonAnalyzer
     {
         if (decision == Decision.Buy)
             return $"{SignalName(signal)}，风险可控，可轻仓介入，注意量能配合";
+        if (decision == Decision.TryBuy)
+            return "价格突破观察位，趋势向上且风险较低，可小仓试错，存在假突破风险需严格止损";
         if (decision == Decision.Watch)
             return $"{SignalName(signal)}，但存在{string.Join("、", reasons)}，观察次日是否站稳";
         if (decision == Decision.Sell)

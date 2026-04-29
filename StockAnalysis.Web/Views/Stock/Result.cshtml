@@ -5,9 +5,11 @@
     var buyItems    = Model.Items.Where(x => x.Signal.Decision == Decision.Buy).ToList();
     var watchItems  = Model.Items.Where(x => x.Signal.Decision == Decision.Watch).ToList();
     var ignoreItems = Model.Items.Where(x => x.Signal.Decision == Decision.Ignore).ToList();
+    var allCodes    = Model.Items.Where(x => x.RealTime != null).Select(x => x.Signal.Code).ToList();
 
     string DecisionBadge(Decision d) => d switch {
         Decision.Buy    => "bg-success",
+        Decision.TryBuy => "bg-info text-dark",
         Decision.Watch  => "bg-warning text-dark",
         Decision.Hold   => "bg-primary",
         Decision.Reduce => "bg-orange text-white",
@@ -16,6 +18,7 @@
     };
     string DecisionBorderClass(Decision d) => d switch {
         Decision.Buy    => "decision-buy",
+        Decision.TryBuy => "decision-trybuy",
         Decision.Watch  => "decision-watch",
         Decision.Hold   => "decision-hold",
         Decision.Reduce => "decision-reduce",
@@ -24,6 +27,7 @@
     };
     string DecisionLabel(Decision d) => d switch {
         Decision.Buy    => "可以买入",
+        Decision.TryBuy => "轻仓试错",
         Decision.Watch  => "观察等待",
         Decision.Hold   => "持有不动",
         Decision.Reduce => "建议减仓",
@@ -44,13 +48,27 @@
         BuySignalType.VolumeBreakout  => "倍量突破",
         BuySignalType.PullbackSupport => "缩量回踩",
         BuySignalType.VolumeWashout   => "凹量洗盘",
+        BuySignalType.TrendPullback   => "趋势回调",
         _                             => "无信号"
+    };
+    string TrendStageLabel(TrendStage s) => s switch {
+        TrendStage.EarlyUp  => "主升初期",
+        TrendStage.MidUp    => "主升中期",
+        TrendStage.LateUp   => "主升末期",
+        TrendStage.Down     => "下跌",
+        _                   => "震荡"
     };
     string RiskClass(int score) => score >= 60 ? "text-danger" : score >= 30 ? "text-warning" : "text-success";
 }
 
 <div class="d-flex align-items-center mb-3 gap-2">
     <h4 class="mb-0">交易决策面板</h4>
+    @if (allCodes.Any())
+    {
+        <span id="rt-status" class="text-muted small ms-3">股价自动刷新中…</span>
+        <span id="rt-countdown" class="badge bg-secondary">10s</span>
+        <button id="rt-refresh-btn" class="btn btn-outline-primary btn-sm">立即刷新</button>
+    }
     <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary btn-sm ms-auto">返回首页</a>
 </div>
 
@@ -87,11 +105,13 @@ else
                     var rt = item.RealTime;
                     var pctClass = rt.ChangePct >= 0 ? "text-danger" : "text-success";
                     var pctSign  = rt.ChangePct >= 0 ? "+" : "";
-                    <span class="ms-auto d-flex gap-3 align-items-center small">
-                        <span>当前价：<strong>@rt.Price.ToString("F2")</strong></span>
-                        <span class="@pctClass fw-bold">@pctSign@rt.ChangePct.ToString("F2")%</span>
-                        <span class="text-muted">今开 @rt.Open.ToString("F2")</span>
-                        <span class="text-muted">昨收 @rt.PreClose.ToString("F2")</span>
+                    <span class="ms-auto d-flex gap-3 align-items-center small" data-rt="@s.Code">
+                        <span>当前价：<strong class="rt-price">@rt.Price.ToString("F2")</strong></span>
+                        <span class="rt-pct fw-bold @pctClass">@pctSign@rt.ChangePct.ToString("F2")%</span>
+                        <span class="text-muted">今开 <span class="rt-open">@rt.Open.ToString("F2")</span></span>
+                        <span class="text-muted">最高 <span class="rt-high">@rt.High.ToString("F2")</span></span>
+                        <span class="text-muted">最低 <span class="rt-low">@rt.Low.ToString("F2")</span></span>
+                        <span class="text-muted">昨收 <span class="rt-preclose">@rt.PreClose.ToString("F2")</span></span>
                     </span>
                 }
                 else
@@ -107,6 +127,7 @@ else
                         <div class="p-3 rounded" style="background:#f8f9fa">
                             <div class="small text-muted mb-1">当前结论</div>
                             <div class="fw-bold fs-6 mb-2">@DecisionLabel(s.Decision)　@(s.SignalType != BuySignalType.None ? $"· {SignalLabel(s.SignalType)}" : "")</div>
+                            <div class="small text-muted mb-1">趋势阶段：<span class="fw-bold">@TrendStageLabel(s.TrendStage)</span></div>
                             <div class="small text-muted mb-1">操作建议</div>
                             <div class="small text-dark">@s.ActionAdvice</div>
                             @if (s.Decision == Decision.Ignore && s.RiskScore < 30)
@@ -152,7 +173,13 @@ else
                                     </td>
                                 </tr>
                                 <tr><td class="text-muted">观察位（MA10+2%）</td><td class="fw-bold">@(s.WatchPrice?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td class="text-success">目标价（MA10+8%）</td><td class="fw-bold text-success">@(s.TargetPrice?.ToString("F2") ?? "-")</td></tr>
                             </table>
+                            <div class="small text-muted mt-2">
+                                <div>• 突破观察位可考虑加仓</div>
+                                <div>• 跌破止损位应立即离场</div>
+                                <div>• 假突破：重新跌破支撑位则观望</div>
+                            </div>
                         </div>
                     </div>
 
@@ -174,13 +201,14 @@ else
                                     {
                                         var yoy = item.Finance.ProfitYoy.Length > i ? item.Finance.ProfitYoy[i] : double.NaN;
                                         var revYoy = item.Finance.RevenueYoy.Length > i ? item.Finance.RevenueYoy[i] : double.NaN;
-                                        bool yoyInvalid = double.IsNaN(yoy) || Math.Abs(yoy) > 100;
-                                        bool revInvalid = double.IsNaN(revYoy) || Math.Abs(revYoy) > 1000;
+                                        bool yoyInvalid = double.IsNaN(yoy) || double.IsInfinity(yoy);
+                                        bool revInvalid = double.IsNaN(revYoy) || double.IsInfinity(revYoy);
                                         var yoyClass = yoy > 0 ? "text-danger" : "text-success";
+                                        var revClass = revYoy > 0 ? "text-danger" : "text-success";
                                         <div class="border rounded p-2" style="min-width:120px">
                                             <div class="text-muted">@item.Finance.Periods[i]</div>
                                             <div>净利润同比：<span class="fw-bold @(yoyInvalid ? "" : yoyClass)">@(yoyInvalid ? "-" : $"{yoy:F1}%")</span></div>
-                                            <div>营收同比：<span class="fw-bold">@(revInvalid ? "-" : $"{revYoy:F1}%")</span></div>
+                                            <div>营收同比：<span class="fw-bold @(revInvalid ? "" : revClass)">@(revInvalid ? "-" : $"{revYoy:F1}%")</span></div>
                                         </div>
                                     }
                                 </div>
@@ -199,7 +227,7 @@ else
         </div>
     }
 
-    @if (ignoreItems.Any())
+@if (ignoreItems.Any())
     {
         // 单股查询时主卡片已展示该股，观望列表过滤掉已展示的股票
         var mainCodes = buyItems.Concat(watchItems).Select(x => x.Signal.Code).ToHashSet();
@@ -210,14 +238,15 @@ else
             <summary class="text-muted small">当前观望股票（@filteredIgnore.Count 只）</summary>
             <div class="table-responsive mt-2">
                 <table class="table table-sm table-bordered">
-                    <thead class="table-light"><tr><th>代码</th><th>名称</th><th>收盘</th><th>趋势</th><th>风险分</th><th>原因</th></tr></thead>
+                    <thead class="table-light"><tr><th>代码</th><th>名称</th><th>日期</th><th>收盘</th><th>趋势</th><th>风险分</th><th>原因</th></tr></thead>
                     <tbody>
                         @foreach (var item in filteredIgnore)
                         {
                             <tr>
                                 <td>@item.Signal.Code</td>
                                 <td>@item.Signal.Name</td>
-                                <td>@item.Signal.Close.ToString("F2")</td>
+                                <td>@item.Signal.Date.ToString("yyyy-MM-dd")</td>
+                                <td>@((item.RealTime?.Price ?? item.Signal.Close).ToString("F2"))</td>
                                 <td class="@TrendClass(item.Signal.Trend)">@TrendLabel(item.Signal.Trend)</td>
                                 <td class="@RiskClass(item.Signal.RiskScore)">@item.Signal.RiskScore</td>
                                 <td class="small">@string.Join("、", item.Signal.Reasons)</td>
@@ -229,4 +258,64 @@ else
         </details>
         }
     }
+}
+
+@section Scripts {
+<script>
+(function () {
+    var nodes = document.querySelectorAll('[data-rt]');
+    if (!nodes.length) return;
+    var codes = Array.from(nodes).map(n => n.dataset.rt).join(',');
+    var interval = 10, timer;
+
+    function fmt(v) { return parseFloat(v).toFixed(2); }
+
+    function refresh() {
+        fetch('/Stock/RealTimeQuotes?codes=' + encodeURIComponent(codes))
+            .then(r => r.json())
+            .then(data => {
+                nodes.forEach(function (el) {
+                    var code = el.dataset.rt;
+                    var q = data[code];
+                    if (!q) return;
+                    el.querySelector('.rt-price').textContent = fmt(q.price);
+                    el.querySelector('.rt-open').textContent  = fmt(q.open);
+                    el.querySelector('.rt-high').textContent  = fmt(q.high);
+                    el.querySelector('.rt-low').textContent   = fmt(q.low);
+                    el.querySelector('.rt-preclose').textContent = fmt(q.preClose);
+                    var pct = el.querySelector('.rt-pct');
+                    pct.textContent = (q.changePct >= 0 ? '+' : '') + fmt(q.changePct) + '%';
+                    pct.className = 'rt-pct fw-bold ' + (q.changePct >= 0 ? 'text-danger' : 'text-success');
+                });
+                document.getElementById('rt-status').textContent = '股价已更新：' + new Date().toLocaleTimeString();
+            })
+            .catch(function () {
+                document.getElementById('rt-status').textContent = '刷新失败，稍后重试';
+            });
+    }
+
+    function startCountdown() {
+        var left = interval;
+        document.getElementById('rt-countdown').textContent = left + 's';
+        timer = setInterval(function () {
+            left--;
+            document.getElementById('rt-countdown').textContent = left + 's';
+            if (left <= 0) {
+                clearInterval(timer);
+                refresh();
+                startCountdown();
+            }
+        }, 1000);
+    }
+
+    refresh();
+    startCountdown();
+
+    document.getElementById('rt-refresh-btn').addEventListener('click', function () {
+        clearInterval(timer);
+        refresh();
+        startCountdown();
+    });
+})();
+</script>
 }

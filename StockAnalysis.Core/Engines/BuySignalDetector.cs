@@ -50,6 +50,20 @@ public class BuySignalDetector
             && bar.Close >= ind.MA20)
             return (BuySignalType.VolumeWashout, $"连续{_cfg.WashoutDays}日缩量洗盘，收盘守住MA20");
 
+        // 趋势回调：均线多头排列 + 近3日缩量回调 + 未跌破MA20 + 当日收阳或重新站上MA5
+        if (index >= 22
+            && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20
+            && bar.Close >= ind.MA20
+            && bars[index - 1].Volume > bars[index].Volume
+            && bars[index - 2].Volume > bars[index - 1].Volume
+            && (bar.Close >= bar.Open || bar.Close >= ind.MA5))
+        {
+            var prevBar = bars[index - 1];
+            bool wasBelow = prevBar.Close < ind.MA5 || prevBar.Close < ind.MA10;
+            if (wasBelow)
+                return (BuySignalType.TrendPullback, "均线多头排列，缩量回调后重新转强");
+        }
+
         return (BuySignalType.None, "");
     }
 }

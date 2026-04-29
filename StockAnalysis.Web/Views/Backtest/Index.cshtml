@@ -1,27 +1,31 @@
 @{
     ViewData["Title"] = "历史回测";
+    bool notFound = ViewBag.NotFound == true;
 }
 
 <h4 class="mb-1">历史回测</h4>
-<p class="text-muted small mb-3">上传历史行情，验证买入信号的胜率和盈亏比</p>
-<div class="card" style="max-width:480px">
+<p class="text-muted small mb-3">输入股票代码或上传CSV，验证买入信号的胜率和盈亏比</p>
+<div class="card" style="max-width:520px">
     <div class="card-body">
         <form method="post" enctype="multipart/form-data">
             <div class="mb-3">
-                <label class="form-label">股票代码</label>
-                <input name="code" class="form-control" placeholder="如 000001" required />
+                <input name="stock" class="form-control form-control-lg"
+                       placeholder="输入股票名称或代码，例如：平安银行 / 000001"
+                       value="@ViewBag.Stock" required autofocus />
             </div>
-            <div class="mb-3">
-                <label class="form-label">股票名称</label>
-                <input name="name" class="form-control" placeholder="如 平安银行" required />
-            </div>
-            <div class="mb-3">
-                <label class="form-label">CSV 文件</label>
-                <input name="file" type="file" class="form-control" accept=".csv" required />
-            </div>
-            @Html.ValidationSummary(false, "", new { @class = "text-danger" })
-            <button type="submit" class="btn btn-primary">开始回测</button>
-            <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary ms-2">返回</a>
+
+            @if (notFound)
+            {
+                <div class="mb-3 p-3 rounded" style="background:#f0f7ff;border-left:4px solid #0d6efd">
+                    <div class="mb-1 fw-bold text-primary">还差一步，上传行情数据即可回测</div>
+                    <div class="text-muted small mb-2">系统暂时没有「@ViewBag.Stock」的内置数据，请上传CSV文件。</div>
+                    <input type="hidden" name="dataSource" value="csv" />
+                    <input name="file" type="file" class="form-control mb-2" accept=".csv" />
+                </div>
+            }
+
+            @Html.ValidationSummary(false, "", new { @class = "text-danger small" })
+            <button type="submit" class="btn btn-primary btn-lg w-100">开始回测</button>
         </form>
     </div>
 </div>

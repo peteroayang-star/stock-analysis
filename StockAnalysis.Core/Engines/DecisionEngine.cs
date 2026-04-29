@@ -16,11 +16,14 @@ public class DecisionEngine
     /// <param name="signal">检测到的买入信号类型</param>
     /// <param name="riskScore">风险评分（0-100）</param>
     /// <returns>Buy / Watch / Ignore</returns>
-    public Decision DecideEntry(BuySignalType signal, int riskScore, Trend trend = Trend.Sideways)
+    public Decision DecideEntry(BuySignalType signal, int riskScore, Trend trend = Trend.Sideways, bool aboveWatchPrice = false)
     {
         if (riskScore > _cfg.WatchMaxScore) return Decision.Ignore;
         if (signal == BuySignalType.None)
+        {
+            if (trend == Trend.Up && riskScore <= 30 && aboveWatchPrice) return Decision.TryBuy;
             return (trend == Trend.Up && riskScore <= _cfg.WatchMaxScore) ? Decision.Watch : Decision.Ignore;
+        }
         return riskScore <= _cfg.BuyMaxScore ? Decision.Buy : Decision.Watch;
     }
 

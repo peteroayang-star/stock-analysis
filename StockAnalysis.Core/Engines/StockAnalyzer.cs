@@ -57,9 +57,25 @@ public class StockAnalyzer
                   : ind != null && ind.MA5 < ind.MA10 && ind.MA10 < ind.MA20 ? Trend.Down
                   : Trend.Sideways;
 
+        // 趋势阶段判断
+        var trendStage = TrendStage.Sideways;
+        if (ind != null)
+        {
+            if (ind.MA5 < ind.MA10 && ind.MA10 < ind.MA20) trendStage = TrendStage.Down;
+            else if (ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20)
+            {
+                // 用MA5斜率和价格位置区分主升阶段
+                var prevInd = last >= 20 ? _calc.Calculate(bars, last - 1) : null;
+                if (prevInd == null) trendStage = TrendStage.EarlyUp;
+                else if (ind.MA5 > prevInd.MA5 * 1.005m) trendStage = TrendStage.MidUp;
+                else if (bar.Close > ind.MA20 * 1.20m) trendStage = TrendStage.LateUp;
+                else trendStage = TrendStage.EarlyUp;
+            }
+        }
+
         var dec = mode == TradingMode.Portfolio
             ? _decision.DecideHolding(riskScore)
-            : _decision.DecideEntry(signalType, riskScore, trend);
+            : _decision.DecideEntry(signalType, riskScore, trend, ind != null && bar.Close >= ind.MA10 * 1.02m);
 
         // 操作建议和仓位
         var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend);
@@ -72,7 +88,9 @@ public class StockAnalyzer
             SupportPrice  = ind != null ? Math.Round(ind.MA20, 2) : null,
             StopLossPrice = ind != null ? Math.Round(ind.MA20 * 0.98m, 2) : null,
             WatchPrice    = ind != null ? Math.Round(ind.MA10 * 1.02m, 2) : null,
+            TargetPrice   = ind != null ? Math.Round(ind.MA10 * 1.08m, 2) : null,
             Trend = trend,
+            TrendStage = trendStage,
             ActionAdvice = action,
             PositionPct = position
         }];
@@ -84,7 +102,10 @@ public class StockAnalyzer
         {
             Decision.Buy => signal == BuySignalType.VolumeBreakout
                 ? ("倍量突破确认，可轻仓试错，突破后加仓", 30)
+                : signal == BuySignalType.TrendPullback
+                ? ("上涨趋势仍在，回调未破关键均线，可轻仓试错，建议仓位20%-30%", 25)
                 : ("信号出现，可小仓位介入，观察后续走势", 20),
+            Decision.TryBuy => ("价格突破观察位且趋势向上，可小仓参与（10%-20%），严格止损", 15),
             Decision.Watch => ("暂时观望，等待更明确信号或风险降低", 0),
             Decision.Hold => ("持有不动，继续观察趋势", 0),
             Decision.Reduce => ("风险上升，建议减仓50%，保留底仓", 0),
