@@ -23,12 +23,15 @@ public class FinanceDataService
         {
             var json = await _http.GetStringAsync($"http://127.0.0.1:5100/finance/{code}");
             var doc = JsonDocument.Parse(json).RootElement;
+
+            double GetDoubleOrZero(JsonElement el) => el.ValueKind == JsonValueKind.Null ? 0 : el.GetDouble();
+
             return new FinanceData(
-                Revenue:    doc.GetProperty("revenue").EnumerateArray().Select(x => x.GetDouble()).ToArray(),
-                NetProfit:  doc.GetProperty("net_profit").EnumerateArray().Select(x => x.GetDouble()).ToArray(),
-                NetMargin:  doc.GetProperty("net_margin").EnumerateArray().Select(x => x.GetDouble()).ToArray(),
-                RevenueYoy: doc.GetProperty("revenue_yoy").EnumerateArray().Select(x => x.GetDouble()).ToArray(),
-                ProfitYoy:  doc.GetProperty("profit_yoy").EnumerateArray().Select(x => x.GetDouble()).ToArray(),
+                Revenue:    doc.GetProperty("revenue").EnumerateArray().Select(GetDoubleOrZero).ToArray(),
+                NetProfit:  doc.GetProperty("net_profit").EnumerateArray().Select(GetDoubleOrZero).ToArray(),
+                NetMargin:  doc.GetProperty("net_margin").EnumerateArray().Select(GetDoubleOrZero).ToArray(),
+                RevenueYoy: doc.GetProperty("revenue_yoy").EnumerateArray().Select(GetDoubleOrZero).ToArray(),
+                ProfitYoy:  doc.GetProperty("profit_yoy").EnumerateArray().Select(GetDoubleOrZero).ToArray(),
                 Periods:    doc.GetProperty("periods").EnumerateArray().Select(x => x.GetString()!).ToArray()
             );
         }

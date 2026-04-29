@@ -9,7 +9,11 @@ public class StockAnalyzer
     private readonly RiskScoreEngine _risk = new();
     private readonly DecisionEngine _decision;
     private readonly StockFilter _filter;
+    private readonly StockStabilityFilter _stability = new();
     private readonly IndicatorCalculator _calc = new();
+
+    /// <summary>最近一次分析被过滤的原因，null 表示未被过滤</summary>
+    public string? LastExcludeReason { get; private set; }
 
     /// <param name="cfg">应用配置</param>
     public StockAnalyzer(AppConfig cfg)
@@ -28,11 +32,12 @@ public class StockAnalyzer
     public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate, List<StockBar>? marketBars = null)
     {
         int last = bars.Count - 1;
-        if (last < 19) return [];
+        if (last < 28) return [];
 
         var bar = bars[last];
+        LastExcludeReason = null;
         var excludeReason = _filter.ShouldExclude(bar.Code, bar.Name, bars);
-        if (excludeReason != null) return [];
+        if (excludeReason != null) { LastExcludeReason = excludeReason; return []; }
 
         var (signalType, signalReason) = _signal.Detect(bars, last);
 
@@ -77,8 +82,29 @@ public class StockAnalyzer
             ? _decision.DecideHolding(riskScore)
             : _decision.DecideEntry(signalType, riskScore, trend, ind != null && bar.Close >= ind.MA10 * 1.02m);
 
+        // 稳定性过滤：必要条件不满足或评分<60，降级决策
+        if (mode == TradingMode.Candidate)
+        {
+            var (stabilityScore, passRequired) = _stability.Evaluate(bars, last);
+            if (!passRequired || stabilityScore < 60)
+            {
+                if (dec == Decision.Buy || dec == Decision.TryBuy)
+                    dec = stabilityScore < 40 ? Decision.Ignore : Decision.Watch;
+                reasons.Add($"稳定性评分{stabilityScore}，信号降级");
+            }
+        }
+
         // 操作建议和仓位
         var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend);
+
+        // 检测14天内是否触及涨停（最高价涨幅≥9.5%）
+        bool hadLimitUp = false;
+        int checkDays = Math.Min(14, last);
+        for (int i = last - checkDays + 1; i <= last; i++)
+        {
+            if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
+            { hadLimitUp = true; break; }
+        }
 
         return [new StockSignal
         {
@@ -92,7 +118,8 @@ public class StockAnalyzer
             Trend = trend,
             TrendStage = trendStage,
             ActionAdvice = action,
-            PositionPct = position
+            PositionPct = position,
+            HadLimitUpIn14Days = hadLimitUp
         }];
     }
 

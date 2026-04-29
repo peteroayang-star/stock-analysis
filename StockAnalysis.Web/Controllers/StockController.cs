@@ -88,6 +88,7 @@ public class StockController : Controller
         try { (marketBars, _) = await _marketData.TryGetBarsAsync("000001"); } catch { }
 
         var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
+        ViewBag.ExcludeReason = _analyzer.LastExcludeReason;
         var ranked = _ranker.Rank(signals);
         var items = new List<SignalWithSuggestion>();
         foreach (var s in ranked)

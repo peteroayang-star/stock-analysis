@@ -48,7 +48,7 @@ public class Backtester
     public List<BacktestResult> Run(List<StockBar> bars)
     {
         var results = new List<BacktestResult>();
-        for (int i = 19; i < bars.Count - 10; i++)
+        for (int i = 26; i < bars.Count - 10; i++)
         {
             var (signalType, _) = _detector.Detect(bars, i);
             if (signalType == BuySignalType.None) continue;

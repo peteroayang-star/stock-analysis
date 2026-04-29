@@ -104,11 +104,32 @@ def format_period(s):
         return f"{y}年{q}" if q else f"{y}年{m}月"
     return s
 
+@app.route("/finance_debug/<code>")
+def get_finance_debug(code):
+    try:
+        df = ak.stock_financial_abstract(symbol=code)
+        return jsonify({"columns": [str(c) for c in df.columns.tolist()]})
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+def get_latest_quarter_date():
+    """返回最近已结束季度的报告期，格式 20260331"""
+    from datetime import date
+    today = date.today()
+    quarters = [(3,31),(6,30),(9,30),(12,31)]
+    for month, day in reversed(quarters):
+        if (today.month, today.day) > (month, day) or (today.month == month and today.day == day):
+            return f"{today.year}{month:02d}{day:02d}"
+        if today.month <= month:
+            continue
+    # 上一年Q4
+    return f"{today.year-1}1231"
+
 @app.route("/finance/<code>")
 def get_finance(code):
     try:
         df = ak.stock_financial_abstract(symbol=code)
-        date_cols = [c for c in df.columns if str(c).isdigit() or (isinstance(c, int))][:4]
+        date_cols = sorted([c for c in df.columns if str(c).isdigit() or isinstance(c, int)], reverse=True)[:4]
 
         def find_row(name):
             matches = df[df['指标'] == name]
@@ -127,13 +148,46 @@ def get_finance(code):
                     vals.append(None)
             return vals
 
+        periods = [format_period(c) for c in date_cols]
+
+        # 检查最新季度是否缺失，若缺失则用 stock_yjbb_em 补充
+        latest_q = get_latest_quarter_date()
+        latest_q_label = format_period(latest_q)
+        if periods and periods[0] != latest_q_label:
+            try:
+                em = ak.stock_yjbb_em(date=latest_q)
+                row = em[em['股票代码'] == code]
+                if not row.empty:
+                    r = row.iloc[0]
+                    revenue     = r.get('营业总收入-营业总收入', None)
+                    revenue_yoy = r.get('营业总收入-同比增长', None)
+                    profit      = r.get('净利润-净利润', None)
+                    profit_yoy  = r.get('净利润-同比增长', None)
+
+                    def safe(v):
+                        try: return round(float(v), 4)
+                        except: return None
+
+                    # 插入最新期到列表头部，移除最旧一期
+                    rows = {
+                        "revenue":     [safe(revenue)]     + get_vals("营业总收入")[:3],
+                        "net_profit":  [safe(profit)]      + get_vals("归母净利润")[:3],
+                        "net_margin":  [None]              + get_vals("销售净利率")[:3],
+                        "revenue_yoy": [safe(revenue_yoy)] + get_vals("营业总收入增长率")[:3],
+                        "profit_yoy":  [safe(profit_yoy)]  + get_vals("归属母公司净利润增长率")[:3],
+                        "periods":     [latest_q_label]    + periods[:3]
+                    }
+                    return jsonify(rows)
+            except:
+                pass
+
         rows = {
             "revenue":      get_vals("营业总收入"),
             "net_profit":   get_vals("归母净利润"),
             "net_margin":   get_vals("销售净利率"),
             "revenue_yoy":  get_vals("营业总收入增长率"),
             "profit_yoy":   get_vals("归属母公司净利润增长率"),
-            "periods":      [format_period(c) for c in date_cols]
+            "periods":      periods
         }
         return jsonify(rows)
     except Exception as e:

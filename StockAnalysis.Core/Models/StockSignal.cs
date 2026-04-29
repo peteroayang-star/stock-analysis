@@ -84,4 +84,6 @@ public class StockSignal
     public string ActionAdvice { get; set; } = "";
     /// <summary>建议仓位比例（0-100）</summary>
     public int PositionPct { get; set; }
+    /// <summary>14天内是否触及涨停</summary>
+    public bool HadLimitUpIn14Days { get; set; }
 }

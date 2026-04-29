@@ -74,7 +74,13 @@
 
 @if (!Model.Items.Any())
 {
-    <div class="alert alert-warning">未检测到任何信号（数据不足或被过滤）</div>
+    <div class="alert alert-warning">
+        未检测到任何信号（数据不足或被过滤）
+        @if (ViewBag.ExcludeReason != null)
+        {
+            <span>— 过滤原因：<strong>@ViewBag.ExcludeReason</strong></span>
+        }
+    </div>
 }
 else
 {
@@ -100,6 +106,10 @@ else
             <div class="card-header d-flex align-items-center gap-2 bg-white flex-wrap">
                 <span class="fw-bold fs-5">@s.Name <small class="text-muted">@s.Code</small></span>
                 <span class="badge @DecisionBadge(s.Decision) ms-2 fs-6">@DecisionLabel(s.Decision)</span>
+                @if (s.HadLimitUpIn14Days)
+                {
+                    <span class="badge bg-danger ms-1">14天内触及涨停</span>
+                }
                 @if (item.RealTime != null)
                 {
                     var rt = item.RealTime;
@@ -268,6 +278,15 @@ else
     var codes = Array.from(nodes).map(n => n.dataset.rt).join(',');
     var interval = 10, timer;
 
+    function isTradingTime() {
+        var now = new Date();
+        var day = now.getDay(); // 0=周日,6=周六
+        if (day === 0 || day === 6) return false;
+        var h = now.getHours(), m = now.getMinutes();
+        var mins = h * 60 + m;
+        return mins >= 9 * 60 + 15 && mins < 15 * 60;
+    }
+
     function fmt(v) { return parseFloat(v).toFixed(2); }
 
     function refresh() {
@@ -295,6 +314,11 @@ else
     }
 
     function startCountdown() {
+        if (!isTradingTime()) {
+            document.getElementById('rt-status').textContent = '非交易时间，自动刷新已暂停';
+            document.getElementById('rt-countdown').textContent = '--';
+            return;
+        }
         var left = interval;
         document.getElementById('rt-countdown').textContent = left + 's';
         timer = setInterval(function () {

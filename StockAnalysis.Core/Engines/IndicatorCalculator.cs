@@ -31,7 +31,7 @@ public class IndicatorCalculator
     /// <returns>指标对象，数据不足时返回 null</returns>
     public Indicators? Calculate(List<StockBar> bars, int index)
     {
-        if (index < 19) return null;
+        if (index < 26) return null;
 
         var bar = bars[index];
         decimal ma(int n) => bars.Skip(index - n + 1).Take(n).Average(b => b.Close);
