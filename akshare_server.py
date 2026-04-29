@@ -96,20 +96,36 @@ def get_name(code):
     except Exception as e:
         return {"error": str(e)}, 500
 
+def format_period(s):
+    s = str(s)
+    if len(s) == 8:
+        y, m = s[:4], s[4:6]
+        q = {"03": "第一季度", "06": "第二季度", "09": "第三季度", "12": "第四季度"}.get(m)
+        return f"{y}年{q}" if q else f"{y}年{m}月"
+    return s
+
 @app.route("/finance/<code>")
 def get_finance(code):
     try:
         df = ak.stock_financial_abstract(symbol=code)
-        # 取最近4期日期列
-        date_cols = [c for c in df.columns if str(c).isdigit()][:4]
-        # 提取关键行：营业收入(1)、净利润(3)、净利率(14)、营收增长率(51)、净利润增长率(52)
+        date_cols = [c for c in df.columns if str(c).isdigit() or (isinstance(c, int))][:4]
+
         def find_row(name):
             matches = df[df['指标'] == name]
             return matches.iloc[0] if not matches.empty else None
 
         def get_vals(name):
             row = find_row(name)
-            return list(row[date_cols].astype(float)) if row is not None else []
+            if row is None:
+                return []
+            vals = []
+            for c in date_cols:
+                try:
+                    v = float(row[c])
+                    vals.append(round(v, 4))
+                except:
+                    vals.append(None)
+            return vals
 
         rows = {
             "revenue":      get_vals("营业总收入"),
@@ -117,7 +133,7 @@ def get_finance(code):
             "net_margin":   get_vals("销售净利率"),
             "revenue_yoy":  get_vals("营业总收入增长率"),
             "profit_yoy":   get_vals("归属母公司净利润增长率"),
-            "periods":      list(date_cols)
+            "periods":      [format_period(c) for c in date_cols]
         }
         return jsonify(rows)
     except Exception as e:

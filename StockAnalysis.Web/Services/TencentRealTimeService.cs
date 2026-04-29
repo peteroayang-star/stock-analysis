@@ -3,7 +3,7 @@ using System.Text;
 
 namespace StockAnalysis.Web.Services;
 
-public record RealTimeQuote(decimal Price, decimal Open, decimal PreClose, decimal ChangePct, long Volume);
+public record RealTimeQuote(decimal Price, decimal Open, decimal PreClose, decimal ChangePct, long Volume, decimal High, decimal Low);
 
 public class TencentRealTimeService
 {
@@ -24,14 +24,16 @@ public class TencentRealTimeService
             var end = raw.LastIndexOf('"');
             if (start < 0 || end <= start) return null;
             var fields = raw[start..end].Split('~');
-            if (fields.Length < 7) return null;
+            if (fields.Length < 35) return null;
 
             var price    = decimal.Parse(fields[3], CultureInfo.InvariantCulture);
             var preClose = decimal.Parse(fields[4], CultureInfo.InvariantCulture);
             var open     = decimal.Parse(fields[5], CultureInfo.InvariantCulture);
             var volume   = long.Parse(fields[6], CultureInfo.InvariantCulture);
+            var high     = decimal.Parse(fields[33], CultureInfo.InvariantCulture);
+            var low      = decimal.Parse(fields[34], CultureInfo.InvariantCulture);
             var changePct = preClose == 0 ? 0 : Math.Round((price - preClose) / preClose * 100, 2);
-            return new RealTimeQuote(price, open, preClose, changePct, volume);
+            return new RealTimeQuote(price, open, preClose, changePct, volume, high, low);
         }
         catch (Exception ex) { Console.WriteLine($"[TENCENT ERROR] {ex.Message}"); return null; }
     }
