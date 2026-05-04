@@ -1,0 +1,56 @@
+@using StockAnalysis.Web.Models
+@model List<ScreenerResultItem>
+@{
+    ViewData["Title"] = "选股结果";
+    string RiskClass(int s) => s <= 30 ? "text-success fw-bold" : s <= 50 ? "text-warning fw-bold" : "text-danger fw-bold";
+}
+
+<div class="d-flex align-items-center gap-3 mb-3">
+    <h4 class="mb-0">龙头回调选股结果</h4>
+    <span class="text-muted small">板块：@ViewBag.Sector &nbsp;|&nbsp; 扫描 @ViewBag.Total 只，命中 @Model.Count 只</span>
+    <a asp-controller="Screener" asp-action="Index" class="btn btn-sm btn-outline-secondary ms-auto">重新选股</a>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="alert alert-info">当前板块未发现符合条件的龙头回调信号</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>代码/名称</th>
+                    <th>当前价</th>
+                    <th>涨停日</th>
+                    <th>涨停价</th>
+                    <th>信号类型</th>
+                    <th>量比</th>
+                    <th>风险分</th>
+                    <th>系统决策</th>
+                    <th>操作建议</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model)
+                {
+                    var d = item.Dragon;
+                    var s = item.Signal;
+                    var price = item.RealTime?.Price ?? s.Close;
+                    <tr>
+                        <td><strong>@s.Code</strong><br/><span class="text-muted small">@s.Name</span></td>
+                        <td>@price.ToString("F2")</td>
+                        <td>@d.LimitUpDate.ToString("MM-dd")</td>
+                        <td>@d.LimitUpClose.ToString("F2")</td>
+                        <td><span class="badge bg-primary">@d.DojiType</span></td>
+                        <td>@d.VolRatio.ToString("F2")</td>
+                        <td class="@RiskClass(s.RiskScore)">@s.RiskScore</td>
+                        <td>@s.Decision</td>
+                        <td class="small text-muted">@item.Suggestion</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

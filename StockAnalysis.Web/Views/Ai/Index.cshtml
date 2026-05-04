@@ -1,0 +1,54 @@
+@{
+    ViewData["Title"] = "AI问答";
+}
+<div class="container py-4" style="max-width:800px">
+    <h4 class="mb-3">AI 股票问答</h4>
+    <div id="chat-box" class="border rounded p-3 mb-3 bg-light" style="min-height:300px;max-height:500px;overflow-y:auto">
+        <div class="text-muted small">可以问我任何股票相关问题，例如：今天鸿远电子能买入吗？</div>
+    </div>
+    <div class="input-group">
+        <input id="msg-input" type="text" class="form-control" placeholder="输入问题..." />
+        <button class="btn btn-primary" id="send-btn">发送</button>
+    </div>
+</div>
+
+<script>
+const box = document.getElementById('chat-box');
+const input = document.getElementById('msg-input');
+const btn = document.getElementById('send-btn');
+
+function appendMsg(role, text) {
+    const div = document.createElement('div');
+    div.className = 'mb-2';
+    div.innerHTML = `<span class="fw-bold ${role === 'user' ? 'text-primary' : 'text-success'}">${role === 'user' ? '我' : 'AI'}：</span>${text.replace(/\n/g, '<br>')}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+async function send() {
+    const msg = input.value.trim();
+    if (!msg) return;
+    input.value = '';
+    btn.disabled = true;
+    appendMsg('user', msg);
+    appendMsg('ai', '思考中...');
+    try {
+        const resp = await fetch('/Ai/Ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg })
+        });
+        const data = await resp.json();
+        box.lastChild.remove();
+        appendMsg('ai', data.reply ?? '无响应');
+    } catch {
+        box.lastChild.remove();
+        appendMsg('ai', '请求失败，请检查网络或API配置');
+    }
+    btn.disabled = false;
+    input.focus();
+}
+
+btn.addEventListener('click', send);
+input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+</script>

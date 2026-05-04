@@ -25,6 +25,7 @@ builder.Services.AddHttpClient<FinanceDataService>().ConfigurePrimaryHttpMessage
 builder.Services.AddScoped<FinanceDataService>();
 builder.Services.AddScoped<MarketDataService>();
 builder.Services.AddSingleton<SignalLogService>();
+builder.Services.AddHttpClient<SparkAiService>().ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseProxy = false });
 
 var app = builder.Build();
 

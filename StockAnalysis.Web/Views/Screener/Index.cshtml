@@ -1,0 +1,36 @@
+@{
+    ViewData["Title"] = "龙头选股";
+    var sectors = ViewBag.Sectors as List<string> ?? new List<string>();
+}
+<h4 class="mb-1">龙头回调选股</h4>
+<p class="text-muted small mb-3">筛选板块内近期涨停、已回调、出现十字星信号的龙头股</p>
+
+<div class="card" style="max-width:520px">
+    <div class="card-body">
+        <form method="post">
+            <div class="mb-2">
+                <label class="form-label">快速选择热门板块</label>
+                <select id="sector-select" class="form-select">
+                    <option value="">-- 点击快速填入 --</option>
+                    @foreach (var s in sectors)
+                    {
+                        <option value="@s">@s</option>
+                    }
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">板块名称 <span class="text-muted small">（可手动输入）</span></label>
+                <input name="sector" id="sector-input" type="text" class="form-control form-control-lg"
+                       placeholder="例如：算力租赁、液冷、CPO..." required />
+            </div>
+            @Html.ValidationSummary(false, "", new { @class = "text-danger small" })
+            <button type="submit" class="btn btn-primary btn-lg w-100">开始扫描</button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('sector-select').addEventListener('change', function() {
+    if (this.value) document.getElementById('sector-input').value = this.value;
+});
+</script>

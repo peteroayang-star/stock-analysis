@@ -13,6 +13,7 @@ public class StockAnalyzer
     private readonly IndicatorCalculator _calc = new();
     private readonly VolumeEngine _volume = new();
     private readonly CycleDetector _cycle = new();
+    private readonly SmartMoneyEngine _smartMoney = new();
 
     public string? LastExcludeReason { get; private set; }
 
@@ -44,11 +45,14 @@ public class StockAnalyzer
             marketWeak = mInd != null && mInd.MA5 < mInd.MA20;
         }
 
-        // 3. 量价 → 周期 → 信号 → 风险
+        // 3. 量价 → 周期 → 信号 → 风险 → 主力行为
         var vol = _volume.Analyze(bars, last);
         var cycle = _cycle.Detect(bars, last, vol);
         var (signalType, signalReason) = _signal.Detect(bars, last, vol, cycle);
-        var (riskScore, riskReasons) = _risk.Score(bars, last, vol, marketWeak);
+        var riskResult = _risk.Score(bars, last, vol, marketWeak);
+        var riskScore = riskResult.Total;
+        var riskReasons = riskResult.Reasons;
+        var smartMoney = _smartMoney.Analyze(bars, last, vol);
 
         // 4. 趋势
         var trend = ind != null && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20 ? Trend.Up
@@ -116,6 +120,32 @@ public class StockAnalyzer
             if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
                 limitUpCount++;
 
+        // 14. 交易价值评分（独立于风险分，越高越值得参与）
+        int tradeValue = cycle.Cycle switch {
+            MarketCycle.MainUp    => 35,
+            MarketCycle.Consensus => 25,
+            MarketCycle.Diverge   => 15,
+            MarketCycle.Launch    => 10,
+            _                     => 0
+        };
+        tradeValue += vol.State switch {
+            VolumeState.AggressiveBuy     => 25,
+            VolumeState.ShrinkConsolidate => 15,
+            VolumeState.ShrinkPullback    => 10,
+            _                             => 0
+        };
+        tradeValue += signalType switch {
+            BuySignalType.VolumeBreakout  => 20,
+            BuySignalType.PullbackSupport => 15,
+            BuySignalType.TrendPullback   => 12,
+            BuySignalType.VolumeWashout   => 10,
+            _                             => 0
+        };
+        if (limitUpCount > 0) tradeValue += Math.Min(limitUpCount * 5, 15);
+        if (riskScore >= 66) tradeValue = (int)(tradeValue * 0.4);
+        else if (riskScore >= 51) tradeValue = (int)(tradeValue * 0.7);
+        tradeValue = Math.Min(tradeValue, 100);
+
         return [new StockSignal
         {
             Code = bar.Code, Name = bar.Name, Date = bar.Date, Close = bar.Close,
@@ -131,7 +161,15 @@ public class StockAnalyzer
             AvgVolume10 = ind != null ? (long)ind.VolMA10 : 0,
             SupportBroken = supportBroken,
             StructureAbnormal = structureAbnormal,
-            SignalStrength = strength
+            SignalStrength = strength,
+            CycleStage = cycle.Description,
+            VolumeDescription = vol.Description,
+            TradeValueScore = tradeValue,
+            SmartMoney = smartMoney.Behavior,
+            SmartMoneyDescription = smartMoney.Description,
+            TrendRisk = riskResult.TrendRisk,
+            VolatilityRisk = riskResult.VolatilityRisk,
+            SentimentRisk = riskResult.SentimentRisk
         }];
     }
 

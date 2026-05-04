@@ -35,19 +35,19 @@ public class CycleDetector
 
         // 派发：高位放量滞涨或上影线偏长
         if (bullish && bar.Close > ind.MA20 * 1.15m &&
-            (vol.State == VolumeState.VolumeStall || highShadow))
+            (vol.State == VolumeState.VolumeStall || vol.State == VolumeState.VolumeDistribute || highShadow))
             return new(MarketCycle.Distribute, "高位放量滞涨或上影线偏长");
 
         // 主升：多头排列 + 放量上涨 + 价格加速
-        if (bullish && vol.State == VolumeState.VolumeUp && ind.ChangeRate > 3m)
+        if (bullish && vol.State == VolumeState.AggressiveBuy && ind.ChangeRate > 3m)
             return new(MarketCycle.MainUp, "多头排列放量加速上涨");
 
         // 一致：多头排列稳固，量价正常配合
-        if (bullish && vol.HasEffectiveVolume && vol.State != VolumeState.VolumeStall)
+        if (bullish && vol.HasEffectiveVolume && vol.State != VolumeState.VolumeStall && vol.State != VolumeState.VolumeDistribute)
             return new(MarketCycle.Consensus, "多头排列量价配合");
 
         // 分歧：多头排列但缩量或滞涨
-        if (bullish && (vol.State == VolumeState.ShrinkUp || vol.State == VolumeState.NoVolume))
+        if (bullish && (vol.State == VolumeState.ShrinkConsolidate || vol.State == VolumeState.ShrinkPullback || vol.State == VolumeState.NoVolumeSideways))
             return new(MarketCycle.Diverge, "多头排列但量能不足");
 
         // 启动：均线刚开始多头，底部放量

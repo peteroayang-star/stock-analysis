@@ -1,57 +1,236 @@
 @model StockAnalysis.Web.Models.BacktestViewModel
+@using StockAnalysis.Core.Models
 @{
-    ViewData["Title"] = "回测结果";
+    ViewData["Title"] = "策略评估面板";
+    var s = Model.Summary;
+    string RetClass(decimal v) => v > 0 ? "bt-up" : v < 0 ? "bt-down" : "";
+    string SignalName(BuySignalType t) => t switch {
+        BuySignalType.VolumeBreakout  => "倍量突破",
+        BuySignalType.PullbackSupport => "缩量回踩",
+        BuySignalType.VolumeWashout   => "凹量洗盘",
+        BuySignalType.TrendPullback   => "趋势回调",
+        _ => t.ToString()
+    };
+    // 排序/筛选参数
+    var sortBy    = ViewBag.SortBy    as string ?? "date";
+    var filterSig = ViewBag.FilterSig as string ?? "";
+    var filterYrs = ViewBag.FilterYrs as string ?? "all";
+
+    var rows = Model.Results.AsEnumerable();
+    if (!string.IsNullOrEmpty(filterSig) && Enum.TryParse<BuySignalType>(filterSig, out var sigEnum))
+        rows = rows.Where(r => r.SignalType == sigEnum);
+    rows = sortBy switch {
+        "ret5"  => rows.OrderByDescending(r => r.Return5D),
+        "ret10" => rows.OrderByDescending(r => r.Return10D),
+        "dd"    => rows.OrderBy(r => r.MaxDrawdown),
+        "type"  => rows.OrderBy(r => r.SignalType.ToString()),
+        _       => rows.OrderByDescending(r => r.SignalDate)
+    };
+    var rowList = rows.ToList();
+
+    // 失败/成功案例
+    var top20Loss = Model.Results.OrderBy(r => r.Return5D).Take(20).ToList();
+    var top20Win  = Model.Results.OrderByDescending(r => r.Return5D).Take(20).ToList();
 }
 
-<h4 class="mb-3">回测结果</h4>
-<a asp-controller="Backtest" asp-action="Index" class="btn btn-outline-secondary btn-sm mb-3">重新回测</a>
+<style>
+.bt-panel { background:#0d1117; border:1px solid #21262d; border-radius:6px; padding:14px; margin-bottom:14px; }
+.bt-title { color:#555; font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
+.bt-stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
+.bt-stat { background:#161b22; border-radius:4px; padding:8px 12px; }
+.bt-stat .label { color:#555; font-size:11px; }
+.bt-stat .val { color:#e0e0e0; font-size:18px; font-weight:700; margin-top:2px; }
+.bt-stat .val.up   { color:#ff4d4f; }
+.bt-stat .val.down { color:#00c853; }
+.bt-stat .val.warn { color:#ffc107; }
+.bt-grade { display:inline-block; font-size:28px; font-weight:800; padding:4px 16px; border-radius:6px; }
+.grade-A { background:#1a3a1a; color:#00c853; border:1px solid #00c853; }
+.grade-B { background:#2a2a0a; color:#ffc107; border:1px solid #ffc107; }
+.grade-C { background:#2a0a0a; color:#ff4d4f; border:1px solid #ff4d4f; }
+.bt-up   { color:#ff4d4f; }
+.bt-down { color:#00c853; }
+.bt-table { width:100%; border-collapse:collapse; font-size:12px; }
+.bt-table th { background:#161b22; color:#555; padding:6px 8px; text-align:left; border-bottom:1px solid #21262d; white-space:nowrap; }
+.bt-table td { padding:5px 8px; border-bottom:1px solid #161b22; color:#ccc; }
+.bt-table tr:hover td { background:#161b22; }
+.bt-filter { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+.bt-filter select, .bt-filter button { background:#161b22; border:1px solid #21262d; color:#ccc; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; }
+.bt-filter button:hover { border-color:#e94560; color:#fff; }
+.sig-row { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
+.sig-card { background:#161b22; border-radius:4px; padding:8px 12px; border-left:3px solid #21262d; }
+.sig-card .sig-name { color:#e0e0e0; font-size:13px; font-weight:600; margin-bottom:4px; }
+.sig-card .sig-stats { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:#666; }
+.sig-card .sig-stats span b { color:#ccc; }
+</style>
 
-@if (Model.Summary != null)
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+    <h4 style="color:#e0e0e0;margin:0">策略评估面板</h4>
+    <a asp-controller="Backtest" asp-action="Index" style="color:#555;font-size:12px">← 重新回测</a>
+</div>
+
+@if (s != null)
 {
-    <div class="card mb-4" style="max-width:500px">
-        <div class="card-header fw-bold">汇总统计</div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-6">信号数：<strong>@Model.Summary.TotalSignals</strong></div>
-                <div class="col-6">胜率：<strong>@Model.Summary.WinRate.ToString("F1")%</strong></div>
-                <div class="col-6">5日均收益：<strong>@Model.Summary.AvgReturn5D.ToString("F2")%</strong></div>
-                <div class="col-6">盈亏比：<strong>@Model.Summary.ProfitLossRatio.ToString("F2")</strong></div>
-                <div class="col-6">平均盈利：<strong>@Model.Summary.AvgWin.ToString("F2")%</strong></div>
-                <div class="col-6">平均亏损：<strong>@Model.Summary.AvgLoss.ToString("F2")%</strong></div>
+    <!-- 策略评级 + 核心指标 -->
+    <div class="bt-panel">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+            <div>
+                <div class="bt-title">策略评级</div>
+                <span class="bt-grade grade-@s.Grade">@s.Grade 级</span>
+            </div>
+            <div style="color:#555;font-size:12px;line-height:1.8">
+                @if (s.Grade == "A") { <span style="color:#00c853">胜率高 · 盈亏比优 · 适合实盘</span> }
+                else if (s.Grade == "B") { <span style="color:#ffc107">中等策略 · 可谨慎使用</span> }
+                else { <span style="color:#ff4d4f">策略质量不足 · 不建议实盘</span> }
             </div>
         </div>
+        <div class="bt-stat-grid">
+            <div class="bt-stat"><div class="label">信号数</div><div class="val">@s.TotalSignals</div></div>
+            <div class="bt-stat"><div class="label">胜率</div><div class="val @(s.WinRate>55?"up":s.WinRate<45?"down":"warn")">@s.WinRate.ToString("F1")%</div></div>
+            <div class="bt-stat"><div class="label">5日均收益</div><div class="val @(s.AvgReturn5D>0?"up":"down")">@s.AvgReturn5D.ToString("F2")%</div></div>
+            <div class="bt-stat"><div class="label">盈亏比</div><div class="val @(s.ProfitLossRatio>1.5m?"up":s.ProfitLossRatio<1?"down":"warn")">@s.ProfitLossRatio.ToString("F2")</div></div>
+            <div class="bt-stat"><div class="label">平均盈利</div><div class="val up">+@s.AvgWin.ToString("F2")%</div></div>
+            <div class="bt-stat"><div class="label">平均亏损</div><div class="val down">-@s.AvgLoss.ToString("F2")%</div></div>
+            <div class="bt-stat"><div class="label">最大单笔盈利</div><div class="val up">+@s.MaxSingleWin.ToString("F2")%</div></div>
+            <div class="bt-stat"><div class="label">最大单笔亏损</div><div class="val down">-@s.MaxSingleLoss.ToString("F2")%</div></div>
+            <div class="bt-stat"><div class="label">平均最大回撤</div><div class="val down">@s.AvgMaxDrawdown.ToString("F2")%</div></div>
+            <div class="bt-stat"><div class="label">回撤中位数</div><div class="val down">@s.MedianMaxDrawdown.ToString("F2")%</div></div>
+            <div class="bt-stat"><div class="label">连续亏损最多</div><div class="val @(s.MaxConsecLosses>=5?"down":"warn")">@s.MaxConsecLosses 次</div></div>
+            <div class="bt-stat"><div class="label">期望收益</div><div class="val @(s.Expectancy>0?"up":"down")">@s.Expectancy.ToString("F2")%</div></div>
+        </div>
     </div>
+
+    <!-- 信号类型对比 -->
+    @if (s.BySignalType.Any())
+    {
+        <div class="bt-panel">
+            <div class="bt-title">信号类型对比</div>
+            <div class="sig-row">
+                @foreach (var st in s.BySignalType)
+                {
+                    <div class="sig-card" style="border-left-color:@(st.WinRate>55?"#ff4d4f":st.WinRate<45?"#00c853":"#ffc107")">
+                        <div class="sig-name">@SignalName(st.SignalType)</div>
+                        <div class="sig-stats">
+                            <span>数量 <b>@st.Count</b></span>
+                            <span>胜率 <b class="@(st.WinRate>55?"bt-up":st.WinRate<45?"bt-down":"")">@st.WinRate.ToString("F0")%</b></span>
+                            <span>5日 <b class="@RetClass(st.AvgReturn5D)">@st.AvgReturn5D.ToString("F2")%</b></span>
+                            <span>10日 <b class="@RetClass(st.AvgReturn10D)">@st.AvgReturn10D.ToString("F2")%</b></span>
+                            <span>盈亏比 <b>@st.ProfitLossRatio.ToString("F2")</b></span>
+                            <span>回撤 <b class="bt-down">@st.AvgMaxDrawdown.ToString("F2")%</b></span>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 }
 
-@if (Model.Results.Any())
-{
-    <div class="table-responsive">
-        <table class="table table-bordered table-hover table-sm">
-            <thead class="table-dark">
-                <tr>
-                    <th>代码</th><th>名称</th><th>信号日期</th><th>信号类型</th>
-                    <th>买入价</th><th>1日%</th><th>3日%</th><th>5日%</th><th>10日%</th><th>最大回撤%</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var r in Model.Results)
-                {
+<!-- 筛选/排序 -->
+<div class="bt-panel">
+    <form method="get" class="bt-filter">
+        <input type="hidden" name="stock" value="@ViewBag.Stock" />
+        <select name="filterSig">
+            <option value="">全部信号</option>
+            @foreach (var t in Enum.GetValues<BuySignalType>().Where(t => t != BuySignalType.None))
+            {
+                <option value="@t" selected="@(filterSig == t.ToString())">@SignalName(t)</option>
+            }
+        </select>
+        <select name="sortBy">
+            <option value="date"  selected="@(sortBy=="date")">按日期（最新）</option>
+            <option value="ret5"  selected="@(sortBy=="ret5")">按5日收益</option>
+            <option value="ret10" selected="@(sortBy=="ret10")">按10日收益</option>
+            <option value="dd"    selected="@(sortBy=="dd")">按回撤（最小）</option>
+            <option value="type"  selected="@(sortBy=="type")">按信号类型</option>
+        </select>
+        <button type="submit">应用</button>
+        <span style="color:#555;font-size:11px">共 @rowList.Count 条</span>
+    </form>
+
+    @if (rowList.Any())
+    {
+        <div style="overflow-x:auto">
+            <table class="bt-table">
+                <thead>
                     <tr>
-                        <td>@r.Code</td><td>@r.Name</td>
-                        <td>@r.SignalDate.ToString("yyyy-MM-dd")</td><td>@r.SignalType</td>
-                        <td>@r.EntryPrice.ToString("F2")</td>
-                        <td class="@(r.Return1D > 0 ? "text-success" : "text-danger")">@r.Return1D.ToString("F2")</td>
-                        <td class="@(r.Return3D > 0 ? "text-success" : "text-danger")">@r.Return3D.ToString("F2")</td>
-                        <td class="@(r.Return5D > 0 ? "text-success" : "text-danger")">@r.Return5D.ToString("F2")</td>
-                        <td class="@(r.Return10D > 0 ? "text-success" : "text-danger")">@r.Return10D.ToString("F2")</td>
-                        <td class="text-danger">@r.MaxDrawdown.ToString("F2")</td>
+                        <th>代码</th><th>名称</th><th>信号日期</th><th>信号类型</th>
+                        <th>买入价</th><th>1日%</th><th>3日%</th><th>5日%</th><th>10日%</th><th>最大回撤%</th>
                     </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-}
-else
+                </thead>
+                <tbody>
+                    @foreach (var r in rowList)
+                    {
+                        <tr>
+                            <td>@r.Code</td><td>@r.Name</td>
+                            <td>@r.SignalDate.ToString("yyyy-MM-dd")</td>
+                            <td><span style="color:#888">@SignalName(r.SignalType)</span></td>
+                            <td>@r.EntryPrice.ToString("F2")</td>
+                            <td class="@RetClass(r.Return1D)">@r.Return1D.ToString("F2")</td>
+                            <td class="@RetClass(r.Return3D)">@r.Return3D.ToString("F2")</td>
+                            <td class="@RetClass(r.Return5D)">@r.Return5D.ToString("F2")</td>
+                            <td class="@RetClass(r.Return10D)">@r.Return10D.ToString("F2")</td>
+                            <td class="bt-down">@r.MaxDrawdown.ToString("F2")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div style="color:#555;font-size:13px">未检测到任何信号</div>
+    }
+</div>
+
+<!-- 失败案例 -->
+@if (top20Loss.Any())
 {
-    <div class="alert alert-warning">未检测到任何信号</div>
+    <details class="bt-panel">
+        <summary style="color:#ff4d4f;cursor:pointer;font-size:13px;font-weight:600">失败案例（亏损最大前 @top20Loss.Count 笔）</summary>
+        <div style="overflow-x:auto;margin-top:10px">
+            <table class="bt-table">
+                <thead><tr><th>代码</th><th>名称</th><th>日期</th><th>信号类型</th><th>买入价</th><th>5日%</th><th>10日%</th><th>最大回撤%</th></tr></thead>
+                <tbody>
+                    @foreach (var r in top20Loss)
+                    {
+                        <tr>
+                            <td>@r.Code</td><td>@r.Name</td>
+                            <td>@r.SignalDate.ToString("yyyy-MM-dd")</td>
+                            <td style="color:#888">@SignalName(r.SignalType)</td>
+                            <td>@r.EntryPrice.ToString("F2")</td>
+                            <td class="bt-down">@r.Return5D.ToString("F2")</td>
+                            <td class="@RetClass(r.Return10D)">@r.Return10D.ToString("F2")</td>
+                            <td class="bt-down">@r.MaxDrawdown.ToString("F2")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </details>
+}
+
+<!-- 成功案例 -->
+@if (top20Win.Any())
+{
+    <details class="bt-panel">
+        <summary style="color:#00c853;cursor:pointer;font-size:13px;font-weight:600">成功案例（盈利最大前 @top20Win.Count 笔）</summary>
+        <div style="overflow-x:auto;margin-top:10px">
+            <table class="bt-table">
+                <thead><tr><th>代码</th><th>名称</th><th>日期</th><th>信号类型</th><th>买入价</th><th>5日%</th><th>10日%</th><th>最大回撤%</th></tr></thead>
+                <tbody>
+                    @foreach (var r in top20Win)
+                    {
+                        <tr>
+                            <td>@r.Code</td><td>@r.Name</td>
+                            <td>@r.SignalDate.ToString("yyyy-MM-dd")</td>
+                            <td style="color:#888">@SignalName(r.SignalType)</td>
+                            <td>@r.EntryPrice.ToString("F2")</td>
+                            <td class="bt-up">@r.Return5D.ToString("F2")</td>
+                            <td class="@RetClass(r.Return10D)">@r.Return10D.ToString("F2")</td>
+                            <td class="bt-down">@r.MaxDrawdown.ToString("F2")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </details>
 }

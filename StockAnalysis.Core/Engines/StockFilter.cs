@@ -22,7 +22,7 @@ public class StockFilter
         if (name.StartsWith("ST") || name.StartsWith("*ST")) return "ST股";
         if (code.StartsWith("688")) return "科创板";
         if (code.StartsWith("300") || code.StartsWith("301")) return "创业板";
-        if (code.StartsWith("8")) return "北交所";
+        if (code.StartsWith("8") || code.StartsWith("4")) return "北交所";
         if (bars.Count < _cfg.MinListedDays) return $"上市不足{_cfg.MinListedDays}日";
 
         var lastBar = bars[^1];

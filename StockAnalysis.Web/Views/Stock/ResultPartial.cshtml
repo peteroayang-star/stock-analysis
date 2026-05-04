@@ -1,0 +1,355 @@
+@model StockAnalysis.Web.Models.AnalysisViewModel
+@using StockAnalysis.Core.Models
+@{
+    var allCodes  = Model.Items.Where(x => x.RealTime != null).Select(x => x.Signal.Code).ToList();
+    var firstItem = Model.Items.FirstOrDefault();
+
+    string DecisionLabel(Decision d) => d switch {
+        Decision.Buy    => "可以买入", Decision.TryBuy => "轻仓试错",
+        Decision.Watch  => "观察等待", Decision.Hold   => "持有不动",
+        Decision.Reduce => "建议减仓", Decision.Sell   => "止损离场",
+        _               => "不参与"
+    };
+    string DecisionTagClass(Decision d) => d switch {
+        Decision.Buy    => "tag tag-buy",    Decision.TryBuy => "tag tag-trybuy",
+        Decision.Watch  => "tag tag-watch",  Decision.Hold   => "tag tag-hold",
+        Decision.Reduce => "tag tag-reduce", Decision.Sell   => "tag tag-sell",
+        _               => "tag tag-ignore"
+    };
+    string DecisionBorderClass(Decision d) => d switch {
+        Decision.Buy    => "decision-buy",   Decision.TryBuy => "decision-trybuy",
+        Decision.Watch  => "decision-watch", Decision.Hold   => "decision-hold",
+        Decision.Reduce => "decision-reduce",Decision.Sell   => "decision-sell",
+        _               => "decision-ignore"
+    };
+    string CycleTagClass(string stage) => stage.Contains("主升") ? "tag tag-cycle-up"
+        : stage.Contains("启动") ? "tag tag-cycle-up"
+        : stage.Contains("一致") || stage.Contains("分歧") ? "tag tag-cycle-mid"
+        : "tag tag-cycle-down";
+    string SmartMoneyLabel(SmartMoneyBehavior b) => b switch {
+        SmartMoneyBehavior.Accumulation     => "主力吸筹",
+        SmartMoneyBehavior.Washout          => "主力洗盘",
+        SmartMoneyBehavior.DivergenceSwap   => "高位分歧",
+        SmartMoneyBehavior.AggressiveAttack => "主动进攻",
+        SmartMoneyBehavior.HighShock        => "高位震荡",
+        SmartMoneyBehavior.Distribution     => "疑似派发",
+        SmartMoneyBehavior.Dumping          => "主力出货",
+        _                                   => ""
+    };
+    string SmartMoneyTagClass(SmartMoneyBehavior b) => b switch {
+        SmartMoneyBehavior.AggressiveAttack                                    => "tag tag-smart-attack",
+        SmartMoneyBehavior.Accumulation or SmartMoneyBehavior.Washout          => "tag tag-smart-accum",
+        SmartMoneyBehavior.Distribution or SmartMoneyBehavior.Dumping          => "tag tag-smart-dist",
+        SmartMoneyBehavior.DivergenceSwap or SmartMoneyBehavior.HighShock      => "tag tag-smart-wash",
+        _                                                                      => "tag tag-smart-other"
+    };
+    string RiskTagClass(int score) => score >= 70 ? "tag tag-risk-ext"
+        : score >= 50 ? "tag tag-risk-high"
+        : score >= 25 ? "tag tag-risk-mid"
+        : "tag tag-risk-low";
+    string RiskLabel(int score) => score >= 70 ? "极高风险" : score >= 50 ? "高风险" : score >= 25 ? "中风险" : "低风险";
+    string RiskBarColor(int score) => score >= 70 ? "#dc3545" : score >= 50 ? "#fd7e14" : score >= 25 ? "#ffc107" : "#198754";
+    string ValueTagClass(int score) => score >= 60 ? "tag tag-value-high" : score >= 30 ? "tag tag-value-mid" : "tag tag-value-low";
+    string TrendClass(Trend t) => t switch { Trend.Up => "up", Trend.Down => "down", _ => "warn" };
+    string TrendLabel(Trend t) => t switch { Trend.Up => "上涨偏强", Trend.Down => "下跌偏弱", _ => "震荡中性" };
+    string TrendStageLabel(TrendStage s) => s switch {
+        TrendStage.EarlyUp => "主升初期", TrendStage.MidUp => "主升中期",
+        TrendStage.LateUp  => "主升末期", TrendStage.Down  => "下跌阶段", _ => "震荡整理"
+    };
+    string SignalLabel(BuySignalType t) => t switch {
+        BuySignalType.VolumeBreakout  => "倍量突破",
+        BuySignalType.PullbackSupport => "缩量回踩",
+        BuySignalType.VolumeWashout   => "凹量洗盘",
+        BuySignalType.TrendPullback   => "趋势回调",
+        _                             => ""
+    };
+}
+
+<div id="analysis-result-container"
+     data-code="@(firstItem?.Signal.Code ?? "")"
+     data-name="@(firstItem?.Signal.Name ?? "")">
+
+@{
+    var ignoreItems2    = Model.Items.Where(x => x.Signal.Decision == Decision.Ignore).ToList();
+    var mainCodes2      = Model.Items.Where(x => x.Signal.Decision != Decision.Ignore).Select(x => x.Signal.Code).ToHashSet();
+    var filteredIgnore2 = ignoreItems2.Where(x => !mainCodes2.Contains(x.Signal.Code)).ToList();
+}
+
+@if (!Model.Items.Any())
+{
+    <div class="alert alert-warning">
+        未检测到任何信号（数据不足或被过滤）
+        @if (ViewBag.ExcludeReason != null)
+        { <span>— 过滤原因：<strong>@ViewBag.ExcludeReason</strong></span> }
+    </div>
+}
+else
+{
+    @foreach (var item in Model.Items)
+    {
+        var s = item.Signal;
+        var rt = item.RealTime;
+        var pctClass = rt != null ? (rt.ChangePct >= 0 ? "up" : "down") : "";
+        var pctSign  = rt != null && rt.ChangePct >= 0 ? "+" : "";
+        var amountStr = rt != null ? (rt.Amount >= 10000 ? $"{rt.Amount/10000:F1}亿" : $"{rt.Amount:F0}万") : "";
+        var emotionIcon = rt != null && rt.ChangePct >= 9.9m ? "🔥"
+            : rt != null && rt.ChangePct >= 5m ? "🚀"
+            : rt != null && rt.ChangePct <= -5m ? "⚠"
+            : !string.IsNullOrEmpty(s.VolumeDescription) && s.VolumeDescription.Contains("放量") ? "💥"
+            : !string.IsNullOrEmpty(s.VolumeDescription) && s.VolumeDescription.Contains("缩量") ? "🌀"
+            : "";
+        <div class="terminal-card @DecisionBorderClass(s.Decision)">
+
+            <div class="layer-1">
+                <!-- 行1：名称 + 决策标签 -->
+                <div class="l1-row-name">
+                    <span class="stock-name">@s.Name</span>
+                    <span class="stock-code">@s.Code</span>
+                    <span class="@DecisionTagClass(s.Decision) decision-main">@DecisionLabel(s.Decision)</span>
+                    <span style="color:#888;font-size:12px;margin-left:auto">@s.Date.ToString("yyyy-MM-dd")</span>
+                </div>
+                <!-- 行2：价格主视觉 -->
+                <div class="l1-row-price">
+                    @if (rt != null)
+                    {
+                        <span class="price-main @pctClass">@rt.Price.ToString("F2")</span>
+                        <span class="price-pct @pctClass rt-pct">@pctSign@rt.ChangePct.ToString("F2")%</span>
+                    }
+                    else
+                    {
+                        <span class="price-main" style="color:#aaa">@s.Close.ToString("F2")</span>
+                    }
+                    @if (!string.IsNullOrEmpty(emotionIcon))
+                    { <span class="emotion-icon">@emotionIcon</span> }
+                </div>
+                <!-- 行3：辅助标签 -->
+                <div class="l1-row-tags">
+                    @if (!string.IsNullOrEmpty(s.CycleStage))
+                    { <span class="@CycleTagClass(s.CycleStage)">@s.CycleStage</span> }
+                    @if (!string.IsNullOrEmpty(s.VolumeDescription))
+                    { <span class="tag tag-smart-other">@s.VolumeDescription</span> }
+                    @if (s.SmartMoney != SmartMoneyBehavior.None)
+                    { <span class="@SmartMoneyTagClass(s.SmartMoney)">@SmartMoneyLabel(s.SmartMoney)</span> }
+                    <span class="@RiskTagClass(s.RiskScore)">@RiskLabel(s.RiskScore) @s.RiskScore</span>
+                    <span class="@ValueTagClass(s.TradeValueScore)">价值 @s.TradeValueScore</span>
+                    @if (s.LimitUpCountIn14Days > 0)
+                    { <span class="tag tag-buy">涨停×@s.LimitUpCountIn14Days</span> }
+                </div>
+            </div>
+
+            
+            @if (rt != null)
+            {
+                <div class="layer-2" data-rt="@s.Code">
+                    <span>开 <b class="rt-open">@rt.Open.ToString("F2")</b></span>
+                    <span>高 <b class="rt-high">@rt.High.ToString("F2")</b></span>
+                    <span>低 <b class="rt-low">@rt.Low.ToString("F2")</b></span>
+                    <span>昨收 <b class="rt-preclose">@rt.PreClose.ToString("F2")</b></span>
+                    <span>成交额 <b class="rt-amount">@amountStr</b></span>
+                    @if (rt.Turnover > 0) { <span>换手 <b class="rt-turnover">@rt.Turnover.ToString("F2")%</b></span> }
+                    <span style="color:#555">@s.Date.ToString("yyyy-MM-dd")</span>
+                </div>
+            }
+
+            
+            <div class="layer-3">
+                <div class="layer-3-grid">
+
+                    
+                    <div class="l3-block">
+                        <div class="l3-title">交易依据</div>
+                        <div class="l3-value @TrendClass(s.Trend) mb-1">@TrendLabel(s.Trend) · @TrendStageLabel(s.TrendStage)</div>
+                        @if (s.SignalType != BuySignalType.None)
+                        { <div class="l3-value mb-1" style="color:#ffc107">信号：@SignalLabel(s.SignalType)</div> }
+                        <div class="l3-value" style="color:#888;font-size:12px">@s.ActionAdvice</div>
+                        @if (s.PositionPct > 0)
+                        { <div class="mt-2"><span class="tag tag-hold">建议仓位 @s.PositionPct%</span></div> }
+                    </div>
+
+                    
+                    <div class="l3-block">
+                        <div class="l3-title">风险拆分</div>
+                        @foreach (var (label, val) in new[] { ("趋势", s.TrendRisk), ("波动", s.VolatilityRisk), ("情绪", s.SentimentRisk) })
+                        {
+                            <div class="risk-row">
+                                <span class="risk-label">@label</span>
+                                <div class="risk-bar-wrap">
+                                    <div class="risk-bar" style="width:@(Math.Min(val,100))%;background:@RiskBarColor(val)"></div>
+                                </div>
+                                <span class="risk-num">@val</span>
+                            </div>
+                        }
+                        @if (s.Reasons.Any())
+                        {
+                            <div class="mt-2" style="color:#555;font-size:11px">
+                                @foreach (var r in s.Reasons.Take(2)) { <div>· @r</div> }
+                            </div>
+                        }
+                    </div>
+
+                    
+                    <div class="l3-block">
+                        <div class="l3-title">关键价位</div>
+                        <div class="d-flex flex-column gap-1" style="font-size:12px">
+                            @if (s.SupportPrice.HasValue)
+                            {
+                                <div class="d-flex justify-content-between">
+                                    <span style="color:#555">支撑 MA20 @(s.SupportBroken ? "⚠已跌破" : "")</span>
+                                    <span class="@(s.SupportBroken ? "l3-value down" : "l3-value")">@s.SupportPrice.Value.ToString("F2")</span>
+                                </div>
+                            }
+                            @if (s.StopLossPrice.HasValue)
+                            {
+                                var stopTriggered = rt != null && rt.Price < s.StopLossPrice.Value;
+                                <div class="d-flex justify-content-between">
+                                    <span style="color:#555">止损 @(stopTriggered ? "⚠已触发" : "-2%")</span>
+                                    <span class="l3-value down">@s.StopLossPrice.Value.ToString("F2")</span>
+                                </div>
+                            }
+                            @if (s.WatchPrice.HasValue)
+                            {
+                                <div class="d-flex justify-content-between">
+                                    <span style="color:#555">观察位</span>
+                                    <span class="l3-value warn">@s.WatchPrice.Value.ToString("F2")</span>
+                                </div>
+                            }
+                            @if (s.TargetPrice.HasValue && s.Decision != Decision.Watch)
+                            {
+                                <div class="d-flex justify-content-between">
+                                    <span style="color:#555">目标价</span>
+                                    <span class="l3-value up">@s.TargetPrice.Value.ToString("F2")</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                </div>
+
+                
+                @if (item.Finance != null && item.Finance.Periods.Length > 0)
+                {
+                    <div class="layer-finance">
+                        <details>
+                            <summary>
+                                业绩数据
+                                @if (item.FinanceRiskAdj != 0)
+                                {
+                                    var adjSign = item.FinanceRiskAdj > 0 ? "+" : "";
+                                    <span class="@(item.FinanceRiskAdj > 0 ? "l3-value down" : "l3-value up") ms-2">风险调整 @adjSign@item.FinanceRiskAdj</span>
+                                }
+                            </summary>
+                            <div class="d-flex gap-3 flex-wrap mt-2">
+                                @for (int i = 0; i < item.Finance.Periods.Length; i++)
+                                {
+                                    var yoy    = item.Finance.ProfitYoy.Length > i ? item.Finance.ProfitYoy[i] : double.NaN;
+                                    var revYoy = item.Finance.RevenueYoy.Length > i ? item.Finance.RevenueYoy[i] : double.NaN;
+                                    bool yi = double.IsNaN(yoy) || double.IsInfinity(yoy);
+                                    bool ri = double.IsNaN(revYoy) || double.IsInfinity(revYoy);
+                                    <div style="min-width:110px;border:1px solid #21262d;border-radius:4px;padding:6px 8px">
+                                        <div style="color:#555">@item.Finance.Periods[i]</div>
+                                        <div>净利润 <span class="@(yi?"":"l3-value "+(yoy>0?"up":"down"))">@(yi?"-":$"{yoy:F1}%")</span></div>
+                                        <div>营收 <span class="@(ri?"":"l3-value "+(revYoy>0?"up":"down"))">@(ri?"-":$"{revYoy:F1}%")</span></div>
+                                    </div>
+                                }
+                            </div>
+                        </details>
+                    </div>
+                }
+            </div>
+
+        </div>
+    }
+
+    @if (filteredIgnore2.Any())
+    {
+        <details class="mt-2">
+            <summary style="color:#444;font-size:12px;cursor:pointer">观望股票（@filteredIgnore2.Count 只）</summary>
+            <div class="table-responsive mt-2">
+                <table class="table table-sm" style="font-size:12px;color:#888">
+                    <thead><tr style="color:#555"><th>代码</th><th>名称</th><th>收盘</th><th>趋势</th><th>风险</th><th>原因</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in filteredIgnore2)
+                        {
+                            <tr>
+                                <td>@item.Signal.Code</td>
+                                <td>@item.Signal.Name</td>
+                                <td>@((item.RealTime?.Price ?? item.Signal.Close).ToString("F2"))</td>
+                                <td class="@TrendClass(item.Signal.Trend)">@TrendLabel(item.Signal.Trend)</td>
+                                <td class="@(item.Signal.RiskScore>=50?"down":item.Signal.RiskScore>=25?"warn":"")">@item.Signal.RiskScore</td>
+                                <td>@string.Join("、", item.Signal.Reasons.Take(2))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    }
+}
+
+</div>
+
+@if (allCodes.Any())
+{
+<script>
+(function () {
+    var nodes = document.querySelectorAll('[data-rt]');
+    if (!nodes.length) return;
+    var codes = Array.from(nodes).map(n => n.dataset.rt).join(',');
+    var interval = 10, timer;
+
+    function isTradingTime() {
+        var now = new Date(), day = now.getDay();
+        if (day === 0 || day === 6) return false;
+        var mins = now.getHours() * 60 + now.getMinutes();
+        return mins >= 9 * 60 + 15 && mins < 15 * 60;
+    }
+    function fmt(v) { return parseFloat(v).toFixed(2); }
+
+    function refresh() {
+        fetch('/Stock/RealTimeQuotes?codes=' + encodeURIComponent(codes))
+            .then(r => r.json())
+            .then(data => {
+                nodes.forEach(function (el) {
+                    var q = data[el.dataset.rt];
+                    if (!q) return;
+                    var card = el.closest('.terminal-card');
+                    if (card) {
+                        var priceEl = card.querySelector('.price-main');
+                        var pctEl   = card.querySelector('.rt-pct');
+                        if (priceEl) { priceEl.textContent = fmt(q.price); priceEl.className = 'price-main ' + (q.changePct >= 0 ? 'up' : 'down'); }
+                        if (pctEl)   { pctEl.textContent = (q.changePct >= 0 ? '+' : '') + fmt(q.changePct) + '%'; pctEl.className = 'price-pct rt-pct ' + (q.changePct >= 0 ? 'up' : 'down'); }
+                    }
+                    var o = el.querySelector('.rt-open');    if (o) o.textContent = fmt(q.open);
+                    var h = el.querySelector('.rt-high');    if (h) h.textContent = fmt(q.high);
+                    var l = el.querySelector('.rt-low');     if (l) l.textContent = fmt(q.low);
+                    var p = el.querySelector('.rt-preclose');if (p) p.textContent = fmt(q.preClose);
+                });
+                var st = document.getElementById('rt-status');
+                if (st) st.textContent = '已更新 ' + new Date().toLocaleTimeString();
+            });
+    }
+
+    function startCountdown() {
+        var cdEl = document.getElementById('rt-countdown');
+        if (!isTradingTime()) {
+            var st = document.getElementById('rt-status');
+            if (st) st.textContent = '非交易时间';
+            if (cdEl) cdEl.textContent = '--';
+            return;
+        }
+        var left = interval;
+        if (cdEl) cdEl.textContent = left + 's';
+        timer = setInterval(function () {
+            left--;
+            if (cdEl) cdEl.textContent = left + 's';
+            if (left <= 0) { clearInterval(timer); refresh(); startCountdown(); }
+        }, 1000);
+    }
+
+    refresh();
+    startCountdown();
+    var btn = document.getElementById('rt-refresh-btn');
+    if (btn) btn.addEventListener('click', function () { clearInterval(timer); refresh(); startCountdown(); });
+})();
+</script>
+}

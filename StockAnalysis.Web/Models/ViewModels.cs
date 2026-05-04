@@ -10,7 +10,7 @@ public class SignalWithSuggestion
     public string Suggestion { get; set; } = "";
     public RealTimeQuote? RealTime { get; set; }
     public FinanceData? Finance { get; set; }
-    public int FinanceRiskAdj { get; set; }  // 业绩风险调整分（正=加风险，负=减风险）
+    public int FinanceRiskAdj { get; set; }
     public List<string> FinanceReasons { get; set; } = [];
 }
 
@@ -25,3 +25,12 @@ public class BacktestViewModel
     public List<BacktestResult> Results { get; set; } = [];
     public BacktestSummary? Summary { get; set; }
 }
+
+public class ScreenerResultItem
+{
+    public DragonScreener.DragonResult Dragon { get; set; } = null!;
+    public StockSignal Signal { get; set; } = null!;
+    public string Suggestion { get; set; } = "";
+    public RealTimeQuote? RealTime { get; set; }
+}
+

@@ -1,5 +1,5 @@
-﻿<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,12 +9,34 @@
     <link rel="stylesheet" href="~/StockAnalysis.Web.styles.css" asp-append-version="true" />
 </head>
 <body>
+    <!-- 固定交易工具栏 -->
+    <div id="trading-toolbar">
+        <div class="toolbar-search">
+            <input id="tb-search" type="text" placeholder="代码/名称，如 000066 或 中国长城" autocomplete="off" />
+            <button class="tb-btn" id="tb-search-btn">分析</button>
+        </div>
+        <div class="tb-divider"></div>
+        <span class="tb-label">最近:</span>
+        <div class="tb-chips" id="tb-recent-chips"></div>
+        <div class="tb-divider"></div>
+        <span class="tb-label">观察池:</span>
+        <div class="tb-chips" id="tb-watchlist-chips"></div>
+        <button id="tb-watchlist-star" title="加入/移出观察池">★ 观察</button>
+    </div>
+
+    <!-- 分析加载遮罩 -->
+    <div id="analysis-loading">
+        <div class="text-white text-center">
+            <div class="spinner-border mb-2" role="status"></div>
+            <div id="loading-stock-name" style="font-size:14px"></div>
+        </div>
+    </div>
+
     <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
+        <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom box-shadow" style="margin-top:48px">
             <div class="container-fluid">
                 <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">股票分析系统</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse">
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
@@ -25,46 +47,20 @@
         "nav-link text-dark" + (currentController == ctrl && currentAction == action ? " active fw-bold" : "");
 }
                     <ul class="navbar-nav flex-grow-1">
-                        <li class="nav-item">
-                            <a class="@nav("Home","Index")" asp-controller="Home" asp-action="Index">首页</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="@nav("Stock","Index")" asp-controller="Stock" asp-action="Index">快速选股</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="@nav("Portfolio","Index")" asp-controller="Portfolio" asp-action="Index">我的持仓</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="@nav("Backtest","Index")" asp-controller="Backtest" asp-action="Index">历史回测</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="@nav("Opportunity","Index")" asp-controller="Opportunity" asp-action="Index">机会池</a>
-                        </li>
+                        <li class="nav-item"><a class="@nav("Home","Index")" asp-controller="Home" asp-action="Index">首页</a></li>
+                        <li class="nav-item"><a class="@nav("Stock","Index")" asp-controller="Stock" asp-action="Index">快速选股</a></li>
+                        <li class="nav-item"><a class="@nav("Portfolio","Index")" asp-controller="Portfolio" asp-action="Index">我的持仓</a></li>
+                        <li class="nav-item"><a class="@nav("Backtest","Index")" asp-controller="Backtest" asp-action="Index">历史回测</a></li>
+                        <li class="nav-item"><a class="@nav("Opportunity","Index")" asp-controller="Opportunity" asp-action="Index">机会池</a></li>
+                        <li class="nav-item"><a class="@nav("Screener","Index")" asp-controller="Screener" asp-action="Index">龙头选股</a></li>
+                        <li class="nav-item"><a class="@nav("Ai","Index")" asp-controller="Ai" asp-action="Index">AI问答</a></li>
                     </ul>
                 </div>
             </div>
         </nav>
     </header>
-    <div class="container">
-        @{
-            var breadcrumbLabel = (currentController, currentAction) switch {
-                ("Stock", "Index")       => "快速选股",
-                ("Stock", "Result")      => "分析结果",
-                ("Portfolio", "Index")   => "我的持仓",
-                ("Backtest", "Index")    => "历史回测",
-                ("Backtest", "Result")   => "回测结果",
-                _                        => null
-            };
-        }
-        @if (breadcrumbLabel != null)
-        {
-            <nav aria-label="breadcrumb">
-                <ol class="breadcrumb">
-                    <li class="breadcrumb-item"><a asp-controller="Home" asp-action="Index">首页</a></li>
-                    <li class="breadcrumb-item active">@breadcrumbLabel</li>
-                </ol>
-            </nav>
-        }
+
+    <div class="container mt-3">
         <main role="main" class="pb-3">
             @RenderBody()
         </main>
@@ -75,9 +71,183 @@
             &copy; 2026 股票分析系统 · 数据仅供参考，不构成投资建议
         </div>
     </footer>
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+    <script>
+    // ===== 交易工具栏核心逻辑 =====
+    (function () {
+        var RECENT_KEY = 'tb_recent', WATCH_KEY = 'tb_watchlist';
+        var MAX_RECENT = 10;
+
+        function load(key) { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
+        function save(key, arr) { localStorage.setItem(key, JSON.stringify(arr)); }
+
+        function addRecent(code, name) {
+            var list = load(RECENT_KEY).filter(x => x.code !== code);
+            list.unshift({ code, name });
+            if (list.length > MAX_RECENT) list = list.slice(0, MAX_RECENT);
+            save(RECENT_KEY, list);
+        }
+        function getRecent() { return load(RECENT_KEY); }
+
+        function getWatchlist() { return load(WATCH_KEY); }
+        function inWatchlist(code) { return getWatchlist().some(x => x.code === code); }
+        function toggleWatchlist(code, name) {
+            var list = getWatchlist();
+            if (list.some(x => x.code === code)) { save(WATCH_KEY, list.filter(x => x.code !== code)); return false; }
+            list.push({ code, name }); save(WATCH_KEY, list); return true;
+        }
+        function removeWatchlist(code) { save(WATCH_KEY, getWatchlist().filter(x => x.code !== code)); }
+
+        // 渲染最近浏览 chips
+        function renderRecent() {
+            var el = document.getElementById('tb-recent-chips');
+            if (!el) return;
+            el.innerHTML = '';
+            getRecent().forEach(function (item) {
+                var chip = document.createElement('span');
+                chip.className = 'tb-chip';
+                chip.textContent = item.name || item.code;
+                chip.title = item.code;
+                chip.addEventListener('click', function () { analyzeStock(item.code); });
+                el.appendChild(chip);
+            });
+        }
+
+        // 渲染观察池 chips
+        function renderWatchlist() {
+            var el = document.getElementById('tb-watchlist-chips');
+            if (!el) return;
+            el.innerHTML = '';
+            getWatchlist().forEach(function (item) {
+                var chip = document.createElement('span');
+                chip.className = 'tb-chip in-watchlist';
+                chip.innerHTML = (item.name || item.code) + '<span class="chip-del" data-code="' + item.code + '">✕</span>';
+                chip.querySelector('.chip-del').addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    removeWatchlist(item.code);
+                    renderWatchlist();
+                    updateStarBtn();
+                });
+                chip.addEventListener('click', function (e) {
+                    if (e.target.classList.contains('chip-del')) return;
+                    analyzeStock(item.code);
+                });
+                el.appendChild(chip);
+            });
+        }
+
+        // 更新星标按钮状态
+        function updateStarBtn() {
+            var btn = document.getElementById('tb-watchlist-star');
+            if (!btn) return;
+            var code = btn.dataset.code;
+            if (!code) return;
+            if (inWatchlist(code)) {
+                btn.classList.add('starred');
+                btn.textContent = '★ 已观察';
+            } else {
+                btn.classList.remove('starred');
+                btn.textContent = '★ 观察';
+            }
+        }
+
+        // 核心：AJAX 分析股票（不跳转页面）
+        window.analyzeStock = function (stock) {
+            if (!stock) return;
+            var loading = document.getElementById('analysis-loading');
+            var nameEl = document.getElementById('loading-stock-name');
+            if (nameEl) nameEl.textContent = '正在分析 ' + stock + ' ...';
+            if (loading) loading.classList.add('show');
+
+            // 如果当前不在结果页，跳转过去
+            if (!document.getElementById('analysis-result-container')) {
+                window.location.href = '/Stock/Result?stock=' + encodeURIComponent(stock);
+                return;
+            }
+
+            fetch('/Stock/AnalyzePartial?stock=' + encodeURIComponent(stock))
+                .then(function (r) {
+                    if (!r.ok) throw new Error('请求失败');
+                    return r.text();
+                })
+                .then(function (html) {
+                    var container = document.getElementById('analysis-result-container');
+                    if (container) {
+                        container.innerHTML = html;
+                        container.querySelectorAll('script').forEach(function (s) {
+                            var ns = document.createElement('script');
+                            ns.textContent = s.textContent;
+                            document.body.appendChild(ns);
+                            document.body.removeChild(ns);
+                        });
+                    }
+                    history.pushState({ stock: stock }, '', '/Stock/Result?stock=' + encodeURIComponent(stock));
+                    // 从返回的 HTML 容器读取真实 code/name
+                    var newContainer = document.getElementById('analysis-result-container');
+                    var code = newContainer ? (newContainer.dataset.code || '') : '';
+                    var name = newContainer ? (newContainer.dataset.name || stock) : stock;
+                    if (code) {
+                        addRecent(code, name);
+                        renderRecent();
+                        var starBtn = document.getElementById('tb-watchlist-star');
+                        if (starBtn) { starBtn.dataset.code = code; starBtn.dataset.name = name; }
+                        updateStarBtn();
+                    }
+                    window.scrollTo(0, 0);
+                })
+                .catch(function () {
+                    window.location.href = '/Stock/Result?stock=' + encodeURIComponent(stock);
+                })
+                .finally(function () {
+                    if (loading) loading.classList.remove('show');
+                });
+        };
+
+        // 搜索框回车/按钮
+        var searchInput = document.getElementById('tb-search');
+        var searchBtn = document.getElementById('tb-search-btn');
+        if (searchInput) {
+            searchInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { analyzeStock(searchInput.value.trim()); searchInput.value = ''; }
+            });
+        }
+        if (searchBtn) {
+            searchBtn.addEventListener('click', function () {
+                analyzeStock(searchInput.value.trim()); searchInput.value = '';
+            });
+        }
+
+        // 观察池星标
+        var starBtn = document.getElementById('tb-watchlist-star');
+        if (starBtn) {
+            starBtn.addEventListener('click', function () {
+                var code = starBtn.dataset.code, name = starBtn.dataset.name;
+                if (!code) return;
+                toggleWatchlist(code, name);
+                renderWatchlist();
+                updateStarBtn();
+            });
+        }
+
+        // 初始化
+        setTimeout(function () {
+            var container = document.getElementById('analysis-result-container');
+            if (container && container.dataset.code) {
+                var starBtn = document.getElementById('tb-watchlist-star');
+                if (starBtn && !starBtn.dataset.code) {
+                    starBtn.dataset.code = container.dataset.code;
+                    starBtn.dataset.name = container.dataset.name || '';
+                }
+            }
+            renderRecent();
+            renderWatchlist();
+            updateStarBtn();
+        }, 0);
+    })();
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -197,6 +197,26 @@ def get_finance(code):
     except Exception as e:
         return {"error": str(e)}, 500
 
+@app.route("/sectors")
+def get_sectors():
+    try:
+        df = ak.stock_board_concept_name_em()
+        names = df["板块名称"].tolist()
+        return jsonify({"sectors": names})
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route("/sector/<name>")
+def get_sector_stocks(name):
+    try:
+        import requests
+        # 用同花顺概念板块接口
+        df = ak.stock_board_concept_cons_ths(symbol=name)
+        stocks = df[["代码", "名称"]].rename(columns={"代码": "code", "名称": "name"}).to_dict(orient="records")
+        return jsonify({"stocks": stocks})
+    except Exception as e:
+        return {"error": str(e)}, 500
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5100)
 

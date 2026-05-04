@@ -36,7 +36,7 @@ public class BuySignalDetector
 
         // 缩量回踩MA10：多头排列 + 缩量 + 贴近MA10 + 收阳
         if (ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20
-            && vol.State == VolumeState.ShrinkUp
+            && (vol.State == VolumeState.ShrinkConsolidate || vol.State == VolumeState.ShrinkPullback)
             && Math.Abs(bar.Close - ind.MA10) / ind.MA10 <= _cfg.PullbackNearMARatio
             && bar.Close >= bar.Open)
             return (BuySignalType.PullbackSupport, $"多头排列缩量回踩MA10（±{_cfg.PullbackNearMARatio:P0}）");

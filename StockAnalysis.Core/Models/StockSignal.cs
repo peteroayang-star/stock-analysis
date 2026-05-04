@@ -49,6 +49,19 @@ public enum TradingMode
     Portfolio
 }
 
+/// <summary>主力行为</summary>
+public enum SmartMoneyBehavior
+{
+    Accumulation,     // 吸筹
+    Washout,          // 洗盘
+    DivergenceSwap,   // 分歧换手
+    AggressiveAttack, // 主动进攻
+    HighShock,        // 高位震荡
+    Distribution,     // 派发
+    Dumping,          // 出货
+    None              // 无主力行为
+}
+
 /// <summary>单只股票的分析结果与交易决策</summary>
 public class StockSignal
 {
@@ -94,4 +107,20 @@ public class StockSignal
     public bool StructureAbnormal { get; set; }
     /// <summary>信号强度：强/中/弱</summary>
     public string SignalStrength { get; set; } = "";
+    /// <summary>周期阶段描述（启动/分歧/一致/主升/派发/结束）</summary>
+    public string CycleStage { get; set; } = "";
+    /// <summary>资金态度描述（放量进攻/缩量整理等）</summary>
+    public string VolumeDescription { get; set; } = "";
+    /// <summary>交易价值评分（0-100，越高越值得参与，独立于风险分）</summary>
+    public int TradeValueScore { get; set; }
+    /// <summary>主力行为</summary>
+    public SmartMoneyBehavior SmartMoney { get; set; }
+    /// <summary>主力行为描述</summary>
+    public string SmartMoneyDescription { get; set; } = "";
+    /// <summary>趋势风险（0-100）</summary>
+    public int TrendRisk { get; set; }
+    /// <summary>波动风险（0-100）</summary>
+    public int VolatilityRisk { get; set; }
+    /// <summary>情绪风险（0-100）</summary>
+    public int SentimentRisk { get; set; }
 }

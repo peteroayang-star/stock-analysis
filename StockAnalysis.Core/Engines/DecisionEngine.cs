@@ -23,7 +23,7 @@ public class DecisionEngine
             return (Decision.Ignore, "周期=结束，禁止参与");
         if (cycle.Cycle == MarketCycle.Distribute && signal != BuySignalType.None)
             return (Decision.Watch, "周期=派发，禁止买入，仅观察");
-        if (vol.State == VolumeState.VolumeStall)
+        if (vol.State == VolumeState.VolumeStall || vol.State == VolumeState.VolumeDistribute)
             return (Decision.Ignore, "放量滞涨，禁止买入");
         if (signal == BuySignalType.None && trend == Trend.Sideways && !vol.HasEffectiveVolume)
             return (Decision.Ignore, "无信号+无趋势+无放量，中间态");

@@ -8,7 +8,7 @@
 
 <div class="card" style="max-width:520px">
     <div class="card-body">
-        <form method="post" enctype="multipart/form-data">
+        <form method="post">
             <div class="mb-3">
                 <input name="stock" class="form-control form-control-lg"
                        placeholder="输入股票名称或代码，例如：粤电力A / 000539"
@@ -17,15 +17,9 @@
 
             @if (notFound)
             {
-                <div class="mb-3 p-3 rounded" style="background:#f0f7ff;border-left:4px solid #0d6efd">
-                    <div class="mb-1 fw-bold text-primary">还差一步，上传行情数据即可分析</div>
-                    <div class="text-muted small mb-2">系统暂时没有「@ViewBag.Stock」的内置数据，你可以自己上传一份 CSV 文件，分析过程完全一样。</div>
-                    <input type="hidden" name="dataSource" value="csv" />
-                    <input name="file" type="file" class="form-control mb-2" accept=".csv" />
-                    <div class="small text-muted">
-                        没有文件？<a href="/data/template.csv" download>下载CSV模板</a>，按格式填入数据即可。<br />
-                        <span class="text-secondary">格式：日期, 开盘, 最高, 最低, 收盘, 成交量, 成交额</span>
-                    </div>
+                <div class="mb-3 p-3 rounded" style="background:#fff3cd;border-left:4px solid #ffc107">
+                    <div class="fw-bold text-warning-emphasis">未找到「@ViewBag.Stock」的行情数据</div>
+                    <div class="small text-muted mt-1">@ViewBag.ErrorMessage</div>
                 </div>
             }
 

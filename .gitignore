@@ -9,3 +9,4 @@ __pycache__/
 signal_log.json
 .claude/
 nul
+StockAnalysis.Web/appsettings.json

@@ -9,7 +9,6 @@ namespace StockAnalysis.Web.Controllers;
 public class StockController : Controller
 {
     private readonly StockAnalyzer _analyzer;
-    private readonly DataImporter _importer;
     private readonly MarketDataService _marketData;
     private readonly TencentRealTimeService _realTime;
     private readonly FinanceDataService _finance;
@@ -17,10 +16,9 @@ public class StockController : Controller
     private readonly RiskReasonAnalyzer _reasoner = new();
     private readonly DecisionRanker _ranker = new();
 
-    public StockController(StockAnalyzer analyzer, DataImporter importer, MarketDataService marketData, TencentRealTimeService realTime, FinanceDataService finance, SignalLogService log)
+    public StockController(StockAnalyzer analyzer, MarketDataService marketData, TencentRealTimeService realTime, FinanceDataService finance, SignalLogService log)
     {
         _analyzer = analyzer;
-        _importer = importer;
         _marketData = marketData;
         _realTime = realTime;
         _finance = finance;
@@ -38,52 +36,55 @@ public class StockController : Controller
         {
             var rt = await _realTime.GetAsync(code.Trim());
             result[code.Trim()] = rt == null ? null : new {
-                price    = rt.Price,
+                price     = rt.Price,
                 changePct = rt.ChangePct,
-                open     = rt.Open,
-                high     = rt.High,
-                low      = rt.Low,
-                preClose = rt.PreClose
+                open      = rt.Open,
+                high      = rt.High,
+                low       = rt.Low,
+                preClose  = rt.PreClose
             };
         }
         return Json(result);
     }
 
+    // GET 方式直接访问结果页（支持 URL 分享 / 工具栏跳转）
+    [HttpGet]
+    public async Task<IActionResult> Result([FromQuery] string stock)
+    {
+        if (string.IsNullOrWhiteSpace(stock)) return RedirectToAction("Index");
+        return await RunAnalysis(stock, partial: false);
+    }
+
+    // AJAX 局部刷新接口（返回 HTML 片段，不含 Layout）
+    [HttpGet]
+    public async Task<IActionResult> AnalyzePartial([FromQuery] string stock)
+    {
+        if (string.IsNullOrWhiteSpace(stock))
+            return Content("<div class='alert alert-warning'>请输入股票名称或代码</div>", "text/html");
+        return await RunAnalysis(stock, partial: true);
+    }
+
     [HttpPost]
-    public async Task<IActionResult> Index(string stock, string? dataSource, IFormFile? file)
+    public async Task<IActionResult> Index(string stock)
     {
         if (string.IsNullOrWhiteSpace(stock))
         { ModelState.AddModelError("", "请输入股票名称或代码"); return View(); }
+        return await RunAnalysis(stock, partial: false);
+    }
 
-        List<StockBar>? bars = null;
-
-        if (dataSource == "csv")
+    private async Task<IActionResult> RunAnalysis(string stock, bool partial)
+    {
+        var (bars, error) = await _marketData.TryGetBarsAsync(stock);
+        if (bars == null)
         {
-            if (file == null)
-            { ModelState.AddModelError("", "请选择CSV文件"); return View(); }
-            var tmp = Path.GetTempFileName();
-            try
-            {
-                await using (var fs = System.IO.File.Create(tmp)) await file.CopyToAsync(fs);
-                var isCode = stock.Trim().Length == 6 && stock.Trim().All(char.IsDigit);
-                bars = _importer.ImportCsv(tmp, isCode ? stock.Trim() : "", isCode ? "" : stock.Trim());
-            }
-            finally { System.IO.File.Delete(tmp); }
-        }
-        else
-        {
-            var (result, error) = await _marketData.TryGetBarsAsync(stock);
-            if (result == null)
-            {
-                ViewBag.NotFound = true;
-                ViewBag.Stock = stock;
-                ViewBag.ErrorMessage = error;
-                return View();
-            }
-            bars = result;
+            if (partial)
+                return Content($"<div class='alert alert-warning'>未找到「{stock}」的行情数据：{error}</div>", "text/html");
+            ViewBag.NotFound = true;
+            ViewBag.Stock = stock;
+            ViewBag.ErrorMessage = error;
+            return View("Index");
         }
 
-        // 获取大盘数据（上证指数000001）用于大盘弱势判断
         List<StockBar>? marketBars = null;
         try { (marketBars, _) = await _marketData.TryGetBarsAsync("000001"); } catch { }
 
@@ -93,16 +94,14 @@ public class StockController : Controller
         var items = new List<SignalWithSuggestion>();
         foreach (var s in ranked)
         {
-            var rt = await _realTime.GetAsync(s.Code);
+            var rt  = await _realTime.GetAsync(s.Code);
             var fin = await _finance.GetAsync(s.Code);
 
-            // 业绩风险调整
             int finAdj = 0;
             var finReasons = new List<string>();
             if (fin != null && fin.ProfitYoy.Length > 0)
             {
-                // 同比绝对值超过1000%视为基期异常（基期接近0），忽略该数据
-                var latestProfitYoy = Math.Abs(fin.ProfitYoy[0]) > 1000 ? double.NaN : fin.ProfitYoy[0];
+                var latestProfitYoy  = Math.Abs(fin.ProfitYoy[0]) > 1000 ? double.NaN : fin.ProfitYoy[0];
                 var latestRevenueYoy = fin.RevenueYoy.Length > 0
                     ? (Math.Abs(fin.RevenueYoy[0]) > 1000 ? double.NaN : fin.RevenueYoy[0])
                     : double.NaN;
@@ -115,23 +114,30 @@ public class StockController : Controller
                 }
                 if (!double.IsNaN(latestRevenueYoy))
                 {
-                    if (latestRevenueYoy < -10)      { finAdj += 10; finReasons.Add($"营收同比下滑{Math.Abs(latestRevenueYoy):F1}%"); }
-                    else if (latestRevenueYoy > 20)  { finAdj -= 5;  finReasons.Add($"营收同比增长{latestRevenueYoy:F1}%"); }
+                    if (latestRevenueYoy < -10)     { finAdj += 10; finReasons.Add($"营收同比下滑{Math.Abs(latestRevenueYoy):F1}%"); }
+                    else if (latestRevenueYoy > 20) { finAdj -= 5;  finReasons.Add($"营收同比增长{latestRevenueYoy:F1}%"); }
                 }
             }
             s.RiskScore = Math.Clamp(s.RiskScore + finAdj, 0, 100);
 
             items.Add(new SignalWithSuggestion
             {
-                Signal = s,
-                Suggestion = _reasoner.Suggestion(s.SignalType, s.Decision, s.Reasons),
-                RealTime = rt,
-                Finance = fin,
+                Signal         = s,
+                Suggestion     = _reasoner.Suggestion(s.SignalType, s.Decision, s.Reasons),
+                RealTime       = rt,
+                Finance        = fin,
                 FinanceRiskAdj = finAdj,
                 FinanceReasons = finReasons
             });
         }
         _log.Append(items.Select(x => x.Signal));
-        return View("Result", new AnalysisViewModel { Items = items, Mode = TradingMode.Candidate });
+
+        var vm = new AnalysisViewModel { Items = items, Mode = TradingMode.Candidate };
+        if (partial)
+        {
+            // 返回不含 Layout 的 HTML 片段
+            return PartialView("ResultPartial", vm);
+        }
+        return View("Result", vm);
     }
 }

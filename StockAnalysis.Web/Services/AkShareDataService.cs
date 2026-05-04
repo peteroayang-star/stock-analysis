@@ -100,4 +100,28 @@ public class AkShareDataService
             return File.Exists(cacheFile) ? _importer.ImportCsv(cacheFile, code, name) : null;
         }
     }
+
+    public async Task<List<string>> GetSectorsAsync()
+    {
+        try
+        {
+            var json = await _http.GetStringAsync("http://127.0.0.1:5100/sectors");
+            var doc = JsonDocument.Parse(json).RootElement;
+            return doc.GetProperty("sectors").EnumerateArray().Select(x => x.GetString()!).ToList();
+        }
+        catch { return []; }
+    }
+
+    public async Task<List<(string Code, string Name)>> GetSectorStocksAsync(string sector)
+    {
+        try
+        {
+            var json = await _http.GetStringAsync($"http://127.0.0.1:5100/sector/{Uri.EscapeDataString(sector)}");
+            var doc = JsonDocument.Parse(json).RootElement;
+            return doc.GetProperty("stocks").EnumerateArray()
+                .Select(x => (x.GetProperty("code").GetString()!, x.GetProperty("name").GetString()!))
+                .ToList();
+        }
+        catch { return []; }
+    }
 }

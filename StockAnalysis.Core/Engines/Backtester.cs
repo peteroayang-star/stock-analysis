@@ -20,16 +20,21 @@ public record BacktestResult(
     decimal MaxDrawdown
 );
 
+/// <summary>按信号类型分组统计</summary>
+public record SignalTypeStat(
+    BuySignalType SignalType, int Count, decimal WinRate,
+    decimal AvgReturn5D, decimal AvgReturn10D, decimal ProfitLossRatio, decimal AvgMaxDrawdown
+);
+
 /// <summary>回测汇总统计</summary>
-/// <param name="TotalSignals">信号总数</param>
-/// <param name="WinRate">5日胜率（%）</param>
-/// <param name="AvgReturn5D">5日平均收益率（%）</param>
-/// <param name="AvgWin">盈利交易平均收益（%）</param>
-/// <param name="AvgLoss">亏损交易平均亏损（%）</param>
-/// <param name="ProfitLossRatio">盈亏比（AvgWin / AvgLoss）</param>
 public record BacktestSummary(
     int TotalSignals, decimal WinRate,
-    decimal AvgReturn5D, decimal AvgWin, decimal AvgLoss, decimal ProfitLossRatio
+    decimal AvgReturn5D, decimal AvgWin, decimal AvgLoss, decimal ProfitLossRatio,
+    decimal MaxSingleWin, decimal MaxSingleLoss,
+    decimal AvgMaxDrawdown, decimal MedianMaxDrawdown,
+    int MaxConsecLosses, decimal Expectancy,
+    string Grade,
+    List<SignalTypeStat> BySignalType
 );
 
 /// <summary>回测引擎，遍历历史 K 线检测信号并统计收益</summary>
@@ -69,14 +74,54 @@ public class Backtester
     /// <returns>汇总统计</returns>
     public BacktestSummary Summarize(List<BacktestResult> results)
     {
-        if (results.Count == 0) return new BacktestSummary(0, 0, 0, 0, 0, 0);
+        if (results.Count == 0)
+            return new BacktestSummary(0,0,0,0,0,0,0,0,0,0,0,0,"C",[]);
+
         var wins   = results.Where(r => r.Return5D > 0).ToList();
         var losses = results.Where(r => r.Return5D <= 0).ToList();
-        decimal avgWin  = wins.Count   > 0 ? wins.Average(r => r.Return5D)              : 0;
-        decimal avgLoss = losses.Count > 0 ? Math.Abs(losses.Average(r => r.Return5D)) : 0;
+        decimal avgWin  = wins.Count   > 0 ? wins.Average(r => r.Return5D)               : 0;
+        decimal avgLoss = losses.Count > 0 ? Math.Abs(losses.Average(r => r.Return5D))   : 0;
+        decimal plr     = avgLoss == 0 ? 0 : avgWin / avgLoss;
+        decimal winRate = (decimal)wins.Count / results.Count * 100;
+        decimal lossRate = 100 - winRate;
+        decimal expectancy = winRate / 100 * avgWin - lossRate / 100 * avgLoss;
+
+        // 连续亏损最大次数
+        int maxConsec = 0, cur = 0;
+        foreach (var r in results.OrderBy(r => r.SignalDate))
+        { if (r.Return5D <= 0) { cur++; maxConsec = Math.Max(maxConsec, cur); } else cur = 0; }
+
+        // 回撤统计
+        var dds = results.Select(r => r.MaxDrawdown).OrderBy(x => x).ToList();
+        decimal medianDD = dds.Count % 2 == 0
+            ? (dds[dds.Count/2-1] + dds[dds.Count/2]) / 2
+            : dds[dds.Count/2];
+
+        // 策略评级
+        string grade = winRate > 55 && plr > 1.5m && results.Average(r => r.Return5D) > 2 ? "A"
+            : winRate >= 45 && plr > 1.2m && results.Average(r => r.Return5D) > 0 ? "B" : "C";
+
+        // 按信号类型分组
+        var byType = results.GroupBy(r => r.SignalType).Select(g =>
+        {
+            var gw = g.Where(r => r.Return5D > 0).ToList();
+            var gl = g.Where(r => r.Return5D <= 0).ToList();
+            decimal gAvgWin  = gw.Count > 0 ? gw.Average(r => r.Return5D) : 0;
+            decimal gAvgLoss = gl.Count > 0 ? Math.Abs(gl.Average(r => r.Return5D)) : 0;
+            return new SignalTypeStat(
+                g.Key, g.Count(),
+                g.Count() > 0 ? (decimal)gw.Count / g.Count() * 100 : 0,
+                g.Average(r => r.Return5D), g.Average(r => r.Return10D),
+                gAvgLoss == 0 ? 0 : gAvgWin / gAvgLoss,
+                g.Average(r => r.MaxDrawdown));
+        }).OrderByDescending(s => s.AvgReturn5D).ToList();
+
         return new BacktestSummary(
-            results.Count, (decimal)wins.Count / results.Count * 100,
-            results.Average(r => r.Return5D), avgWin, avgLoss,
-            avgLoss == 0 ? 0 : avgWin / avgLoss);
+            results.Count, winRate,
+            results.Average(r => r.Return5D), avgWin, avgLoss, plr,
+            wins.Count  > 0 ? wins.Max(r => r.Return5D)               : 0,
+            losses.Count > 0 ? Math.Abs(losses.Min(r => r.Return5D))  : 0,
+            results.Average(r => r.MaxDrawdown), medianDD,
+            maxConsec, expectancy, grade, byType);
     }
 }
