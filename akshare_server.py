@@ -9,18 +9,28 @@ import sys, io, os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# 清除代理设置，避免 akshare 请求被代理拦截
-for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
-    os.environ.pop(_k, None)
+# 设置代理，确保 akshare 能访问 HTTPS 接口
+for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+    os.environ[_k] = "http://127.0.0.1:7890"
 
 from flask import Flask, Response, jsonify
 import akshare as ak
 import pandas as pd
 
+# 屏蔽北交所接口（SSL 不稳定），避免 stock_info_a_code_name 因此崩溃
+ak.stock_info_bj_name_code = lambda: pd.DataFrame(columns=["证券代码", "证券简称"])
+
 app = Flask(__name__)
 
 # 启动时加载股票列表缓存
 _stock_list = None
+
+def _fix_gbk(s):
+    """修复 akshare 深交所接口返回的 GBK 乱码名称"""
+    try:
+        return s.encode('raw_unicode_escape').decode('gbk')
+    except Exception:
+        return s
 
 def get_stock_list():
     global _stock_list
