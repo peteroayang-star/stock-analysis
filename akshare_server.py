@@ -24,6 +24,7 @@ app = Flask(__name__)
 
 # 启动时加载股票列表缓存
 _stock_list = None
+_hk_stock_list = None
 
 def _fix_gbk(s):
     """修复 akshare 深交所接口返回的 GBK 乱码名称"""
@@ -39,9 +40,24 @@ def get_stock_list():
         _stock_list = df.set_index("name")["code"].to_dict()
     return _stock_list
 
+def get_hk_stock_list():
+    global _hk_stock_list
+    if _hk_stock_list is None:
+        df = ak.stock_hk_spot_em()[["代码", "名称"]]
+        _hk_stock_list = df.set_index("名称")["代码"].to_dict()
+    return _hk_stock_list
+
+def is_hk_code(code):
+    return len(code) == 5 and code.isdigit() and not code.startswith(("6", "0", "3"))
+
 @app.route("/stock/<code>")
 def get_stock(code):
     try:
+        if is_hk_code(code):
+            df = ak.stock_hk_daily(symbol=code, adjust="qfq")
+            df = df.rename(columns={"date": "日期", "open": "开盘", "high": "最高", "low": "最低", "close": "收盘", "volume": "成交量", "amount": "成交额"})
+            cols = [c for c in ["日期", "开盘", "最高", "最低", "收盘", "成交量", "成交额"] if c in df.columns]
+            return Response(df[cols].to_csv(index=False), mimetype="text/csv")
         prefix = "sh" if code.startswith("6") else "sz"
         df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
         df = df.rename(columns={"date": "日期", "open": "开盘", "high": "最高", "low": "最低", "close": "收盘", "volume": "成交量", "amount": "成交额"})
@@ -70,6 +86,15 @@ def search_stock(name):
         for k, v in stock_list.items():
             if name_norm in normalize(k):
                 return jsonify({"code": v, "name": k})
+        # 港股精确匹配
+        hk_list = get_hk_stock_list()
+        for k, v in hk_list.items():
+            if normalize(k) == name_norm:
+                return jsonify({"code": v, "name": k, "market": "hk"})
+        # 港股模糊匹配
+        for k, v in hk_list.items():
+            if name_norm in normalize(k):
+                return jsonify({"code": v, "name": k, "market": "hk"})
         return {"error": "not found"}, 404
     except Exception as e:
         return {"error": str(e)}, 500
