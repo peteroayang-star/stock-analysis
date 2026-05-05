@@ -34,26 +34,35 @@ public class BuySignalDetector
         if (prevInd != null && ind.DIF > ind.DEA && prevInd.DIF <= prevInd.DEA && ind.MACD > 0)
             return (BuySignalType.PullbackSupport, "MACD金叉，DIF上穿DEA");
 
-        // 缩量回踩MA10：多头排列 + 缩量 + 贴近MA10 + 收阳
+        // MACD死叉时，只有满足"趋势回调修复结构"才允许发出信号（否则降级为无信号）
+        bool macdDead = prevInd != null && ind.DIF < ind.DEA;
+        bool isRepairStructure = ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20  // 多头排列未破
+            && (vol.State == VolumeState.ShrinkConsolidate || vol.State == VolumeState.ShrinkPullback) // 缩量
+            && bar.Close >= ind.MA20;  // 守住MA20
+
+        // 缩量回踩MA10：多头排列 + 缩量 + 贴近MA10 + 收阳（MACD死叉时须满足修复结构）
         if (ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20
             && (vol.State == VolumeState.ShrinkConsolidate || vol.State == VolumeState.ShrinkPullback)
             && Math.Abs(bar.Close - ind.MA10) / ind.MA10 <= _cfg.PullbackNearMARatio
-            && bar.Close >= bar.Open)
+            && bar.Close >= bar.Open
+            && (!macdDead || isRepairStructure))
             return (BuySignalType.PullbackSupport, $"多头排列缩量回踩MA10（±{_cfg.PullbackNearMARatio:P0}）");
 
-        // 凹量洗盘：连续N日缩量 + 收盘守住MA20
+        // 凹量洗盘：连续N日缩量 + 收盘守住MA20（MACD死叉时须满足修复结构）
         if (index >= 19 + _cfg.WashoutDays
             && Enumerable.Range(1, _cfg.WashoutDays).All(n => bars[index - n].Volume < bars[index - n - 1].Volume)
-            && bar.Close >= ind.MA20)
+            && bar.Close >= ind.MA20
+            && (!macdDead || isRepairStructure))
             return (BuySignalType.VolumeWashout, $"连续{_cfg.WashoutDays}日缩量洗盘，收盘守住MA20");
 
-        // 趋势回调：多头排列 + 近3日缩量 + 未破MA20 + 当日转强
+        // 趋势回调：多头排列 + 近3日缩量 + 未破MA20 + 当日转强（MACD死叉时须满足修复结构）
         if (index >= 22
             && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20
             && bar.Close >= ind.MA20
             && bars[index - 1].Volume > bars[index].Volume
             && bars[index - 2].Volume > bars[index - 1].Volume
-            && (bar.Close >= bar.Open || bar.Close >= ind.MA5))
+            && (bar.Close >= bar.Open || bar.Close >= ind.MA5)
+            && (!macdDead || isRepairStructure))
         {
             var prevBar = bars[index - 1];
             if (prevBar.Close < ind.MA5 || prevBar.Close < ind.MA10)

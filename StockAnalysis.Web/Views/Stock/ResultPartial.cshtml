@@ -5,10 +5,10 @@
     var firstItem = Model.Items.FirstOrDefault();
 
     string DecisionLabel(Decision d) => d switch {
-        Decision.Buy    => "可以买入", Decision.TryBuy => "轻仓试错",
-        Decision.Watch  => "观察等待", Decision.Hold   => "持有不动",
-        Decision.Reduce => "建议减仓", Decision.Sell   => "止损离场",
-        _               => "不参与"
+        Decision.Buy    => "🟢 可参与", Decision.TryBuy => "🟢 可以试错",
+        Decision.Watch  => "🟡 观察等待", Decision.Hold   => "🔵 持有不动",
+        Decision.Reduce => "🟠 高位博弈", Decision.Sell   => "🔴 禁止参与",
+        _               => "⚪ 不参与"
     };
     string DecisionTagClass(Decision d) => d switch {
         Decision.Buy    => "tag tag-buy",    Decision.TryBuy => "tag tag-trybuy",
@@ -131,7 +131,6 @@ else
                     @if (s.SmartMoney != SmartMoneyBehavior.None)
                     { <span class="@SmartMoneyTagClass(s.SmartMoney)">@SmartMoneyLabel(s.SmartMoney)</span> }
                     <span class="@RiskTagClass(s.RiskScore)">@RiskLabel(s.RiskScore) @s.RiskScore</span>
-                    <span class="@ValueTagClass(s.TradeValueScore)">价值 @s.TradeValueScore</span>
                     @if (s.LimitUpCountIn14Days > 0)
                     { <span class="tag tag-buy">涨停×@s.LimitUpCountIn14Days</span> }
                 </div>
@@ -169,9 +168,9 @@ else
                     
                     <div class="l3-block">
                         <div class="l3-title">风险拆分</div>
-                        @foreach (var (label, val) in new[] { ("趋势", s.TrendRisk), ("波动", s.VolatilityRisk), ("情绪", s.SentimentRisk) })
+                        @foreach (var (label, val, cls) in new[] { ("趋势", s.TrendRisk, ""), ("波动", s.VolatilityRisk, ""), ("情绪", s.SentimentRisk, "sentiment") })
                         {
-                            <div class="risk-row">
+                            <div class="risk-row @cls">
                                 <span class="risk-label">@label</span>
                                 <div class="risk-bar-wrap">
                                     <div class="risk-bar" style="width:@(Math.Min(val,100))%;background:@RiskBarColor(val)"></div>

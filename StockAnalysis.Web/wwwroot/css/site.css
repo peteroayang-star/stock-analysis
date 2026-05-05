@@ -181,7 +181,7 @@ body {
   flex-wrap: wrap;
 }
 .layer-1 .decision-main {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.5px;
 }
@@ -197,8 +197,8 @@ body {
   line-height: 1;
   letter-spacing: -0.5px;
 }
-.layer-1 .price-main.up   { color: #ff4d4f; text-shadow: 0 0 12px rgba(255,77,79,.4); }
-.layer-1 .price-main.down { color: #00c853; text-shadow: 0 0 12px rgba(0,200,83,.4); }
+.layer-1 .price-main.up   { color: #c0392b; }
+.layer-1 .price-main.down { color: #16a34a; }
 .layer-1 .price-pct  { font-size: 22px; font-weight: 700; }
 .layer-1 .price-pct.up   { color: #ff4d4f; }
 .layer-1 .price-pct.down { color: #00c853; }
@@ -287,9 +287,12 @@ body {
   font-size: 12px;
 }
 .layer-3 .risk-label { color: #666; width: 40px; flex-shrink: 0; }
-.layer-3 .risk-bar-wrap { flex: 1; background: #21262d; border-radius: 2px; height: 6px; margin-top: 4px; }
-.layer-3 .risk-bar { height: 6px; border-radius: 2px; }
+.layer-3 .risk-bar-wrap { flex: 1; background: #21262d; border-radius: 2px; height: 8px; margin-top: 4px; }
+.layer-3 .risk-bar { height: 8px; border-radius: 2px; }
 .layer-3 .risk-num { color: #aaa; font-size: 11px; width: 24px; text-align: right; flex-shrink: 0; }
+/* 情绪风险行加粗强调 */
+.layer-3 .risk-row.sentiment .risk-label { color: #ccc; font-weight: 600; }
+.layer-3 .risk-row.sentiment .risk-num   { color: #fff; font-weight: 700; font-size: 12px; }
 
 /* 业绩折叠区 */
 .layer-finance {
