@@ -34,8 +34,7 @@ public class BacktestController : Controller
         }
 
         var results = _backtester.Run(result);
-        ViewBag.Stock = stock;
-        return View("Result", new BacktestViewModel { Results = results, Summary = _backtester.Summarize(results) });
+        return RedirectToAction("Result", new { stock });
     }
 
     [HttpGet]
