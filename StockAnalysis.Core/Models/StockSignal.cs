@@ -123,4 +123,6 @@ public class StockSignal
     public int VolatilityRisk { get; set; }
     /// <summary>情绪风险（0-100）</summary>
     public int SentimentRisk { get; set; }
+    /// <summary>是否为情绪龙头股（涨停多/主动进攻/高位博弈）</summary>
+    public bool IsEmotionLeader { get; set; }
 }

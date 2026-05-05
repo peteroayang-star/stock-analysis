@@ -290,9 +290,13 @@ body {
 .layer-3 .risk-bar-wrap { flex: 1; background: #21262d; border-radius: 2px; height: 8px; margin-top: 4px; }
 .layer-3 .risk-bar { height: 8px; border-radius: 2px; }
 .layer-3 .risk-num { color: #aaa; font-size: 11px; width: 24px; text-align: right; flex-shrink: 0; }
-/* 情绪风险行加粗强调 */
-.layer-3 .risk-row.sentiment .risk-label { color: #ccc; font-weight: 600; }
-.layer-3 .risk-row.sentiment .risk-num   { color: #fff; font-weight: 700; font-size: 12px; }
+/* 情绪风险高时整行背景压迫感 */
+.layer-3 .risk-row.sentiment.high-sentiment {
+  background: rgba(220,53,69,.08);
+  border-radius: 3px;
+  padding: 2px 4px;
+  margin: 0 -4px 4px;
+}
 
 /* 业绩折叠区 */
 .layer-finance {

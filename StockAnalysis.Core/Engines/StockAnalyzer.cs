@@ -104,21 +104,24 @@ public class StockAnalyzer
         bool supportBroken = belowMA20;
         bool structureAbnormal = supportBroken && (ind == null || bar.Close < ind.MA20 * 0.95m);
 
-        // 11. 操作建议
-        var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol);
-
-        // 12. 信号强度
-        string strength = (belowMA20 && macdDead) || cycle.Cycle == MarketCycle.End ? "弱"
-                        : dec == Decision.Buy ? "强"
-                        : dec == Decision.Watch || dec == Decision.TryBuy ? "中"
-                        : "弱";
-
-        // 13. 14天涨停次数
+        // 11. 14天涨停次数（需在情绪龙头判断前计算）
         int limitUpCount = 0;
         int checkDays = Math.Min(14, last);
         for (int i = last - checkDays + 1; i <= last; i++)
             if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
                 limitUpCount++;
+
+        // 12. 操作建议
+        bool isEmotionLeader = limitUpCount >= 2
+            || smartMoney.Behavior == SmartMoneyBehavior.AggressiveAttack
+            || (smartMoney.Behavior == SmartMoneyBehavior.HighShock && riskResult.SentimentRisk >= 50);
+        var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol, isEmotionLeader);
+
+        // 13. 信号强度
+        string strength = (belowMA20 && macdDead) || cycle.Cycle == MarketCycle.End ? "弱"
+                        : dec == Decision.Buy ? "强"
+                        : dec == Decision.Watch || dec == Decision.TryBuy ? "中"
+                        : "弱";
 
         // 14. 交易价值评分（独立于风险分，越高越值得参与）
         int tradeValue = cycle.Cycle switch {
@@ -169,7 +172,8 @@ public class StockAnalyzer
             SmartMoneyDescription = smartMoney.Description,
             TrendRisk = riskResult.TrendRisk,
             VolatilityRisk = riskResult.VolatilityRisk,
-            SentimentRisk = riskResult.SentimentRisk
+            SentimentRisk = riskResult.SentimentRisk,
+            IsEmotionLeader = isEmotionLeader
         }];
     }
 
@@ -190,8 +194,25 @@ public class StockAnalyzer
 
     private (string action, int position) GenerateAdvice(
         Decision dec, BuySignalType signal, int risk, Trend trend,
-        CycleResult cycle, VolumeResult vol)
+        CycleResult cycle, VolumeResult vol, bool isEmotionLeader)
     {
+        if (isEmotionLeader)
+        {
+            return dec switch
+            {
+                Decision.Buy or Decision.TryBuy
+                    => ("情绪龙头，关注连板强度与换手，高位博弈需严控仓位，快进快出", 10),
+                Decision.Watch
+                    => ("情绪高位，等待情绪回落或缩量企稳后再介入", 0),
+                Decision.Hold
+                    => ("龙头持有，密切关注放量滞涨信号，出现则立即减仓", 0),
+                Decision.Reduce
+                    => ("情绪见顶风险，建议减仓50%以上，保留少量底仓", 0),
+                Decision.Sell
+                    => ("情绪崩塌，立即清仓离场", 0),
+                _ => ("情绪博弈风险极高，不参与", 0)
+            };
+        }
         return dec switch
         {
             Decision.Buy when signal == BuySignalType.VolumeBreakout

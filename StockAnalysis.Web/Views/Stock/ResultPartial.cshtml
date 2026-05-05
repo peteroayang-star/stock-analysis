@@ -124,6 +124,8 @@ else
                 </div>
                 <!-- 行3：辅助标签 -->
                 <div class="l1-row-tags">
+                    @if (s.IsEmotionLeader)
+                    { <span class="tag tag-smart-attack">情绪龙头</span> }
                     @if (!string.IsNullOrEmpty(s.CycleStage))
                     { <span class="@CycleTagClass(s.CycleStage)">@s.CycleStage</span> }
                     @if (!string.IsNullOrEmpty(s.VolumeDescription))
@@ -170,7 +172,7 @@ else
                         <div class="l3-title">风险拆分</div>
                         @foreach (var (label, val, cls) in new[] { ("趋势", s.TrendRisk, ""), ("波动", s.VolatilityRisk, ""), ("情绪", s.SentimentRisk, "sentiment") })
                         {
-                            <div class="risk-row @cls">
+                            <div class="risk-row @cls @(label == "情绪" && val >= 50 ? "high-sentiment" : "")">
                                 <span class="risk-label">@label</span>
                                 <div class="risk-bar-wrap">
                                     <div class="risk-bar" style="width:@(Math.Min(val,100))%;background:@RiskBarColor(val)"></div>
