@@ -8,7 +8,7 @@
         Decision.Buy    => "🟢 可参与", Decision.TryBuy => "🟢 可以试错",
         Decision.Watch  => "🟡 观察等待", Decision.Hold   => "🔵 持有不动",
         Decision.Reduce => "🟠 高位博弈", Decision.Sell   => "🔴 禁止参与",
-        _               => "⚪ 不参与"
+        _               => "⚪ 观察股票"
     };
     string DecisionTagClass(Decision d) => d switch {
         Decision.Buy    => "tag tag-buy",    Decision.TryBuy => "tag tag-trybuy",
@@ -261,30 +261,6 @@ else
         </div>
     }
 
-    @if (filteredIgnore2.Any())
-    {
-        <details class="mt-2">
-            <summary style="color:#9CA3AF;font-size:12px;cursor:pointer">不参与（@filteredIgnore2.Count 只）</summary>
-            <div class="table-responsive mt-2">
-                <table class="table table-sm" style="font-size:12px;color:#D1D5DB">
-                    <thead><tr style="color:#9CA3AF"><th>代码</th><th>名称</th><th>收盘</th><th>趋势</th><th>风险</th><th>原因</th></tr></thead>
-                    <tbody>
-                        @foreach (var item in filteredIgnore2)
-                        {
-                            <tr>
-                                <td>@item.Signal.Code</td>
-                                <td>@item.Signal.Name</td>
-                                <td>@((item.RealTime?.Price ?? item.Signal.Close).ToString("F2"))</td>
-                                <td class="@TrendClass(item.Signal.Trend)">@TrendLabel(item.Signal.Trend)</td>
-                                <td class="@(item.Signal.RiskScore>=50?"down":item.Signal.RiskScore>=25?"warn":"")">@item.Signal.RiskScore</td>
-                                <td>@string.Join("、", item.Signal.Reasons.Take(2))</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </details>
-    }
 }
 
 </div>
