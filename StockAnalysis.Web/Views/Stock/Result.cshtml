@@ -7,7 +7,7 @@
     var allCodes  = Model.Items.Where(x => x.RealTime != null).Select(x => x.Signal.Code).ToList();
 }
 
-<div class="d-flex align-items-center mb-2 gap-2" style="color:#888;font-size:12px">
+<div class="d-flex align-items-center mb-2 gap-2" style="color:#9CA3AF;font-size:12px">
     <span>交易决策面板</span>
     @if (allCodes.Any())
     {

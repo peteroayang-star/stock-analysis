@@ -148,7 +148,7 @@ else
                     <span>昨收 <b class="rt-preclose">@rt.PreClose.ToString("F2")</b></span>
                     <span>成交额 <b class="rt-amount">@amountStr</b></span>
                     @if (rt.Turnover > 0) { <span>换手 <b class="rt-turnover">@rt.Turnover.ToString("F2")%</b></span> }
-                    <span style="color:#555">@s.Date.ToString("yyyy-MM-dd")</span>
+                    <span style="color:#9CA3AF">@s.Date.ToString("yyyy-MM-dd")</span>
                 </div>
             }
 
@@ -162,7 +162,7 @@ else
                         <div class="l3-value @TrendClass(s.Trend) mb-1">@TrendLabel(s.Trend) · @TrendStageLabel(s.TrendStage)</div>
                         @if (s.SignalType != BuySignalType.None)
                         { <div class="l3-value mb-1" style="color:#ffc107">信号：@SignalLabel(s.SignalType)</div> }
-                        <div class="l3-value" style="color:#888;font-size:12px">@s.ActionAdvice</div>
+                        <div class="l3-value" style="color:#D1D5DB;font-size:12px">@s.ActionAdvice</div>
                         @if (s.PositionPct > 0)
                         { <div class="mt-2"><span class="tag tag-hold">建议仓位 @s.PositionPct%</span></div> }
                     </div>
@@ -170,7 +170,7 @@ else
                     
                     <div class="l3-block">
                         <div class="l3-title">风险拆分</div>
-                        @foreach (var (label, val, cls) in new[] { ("趋势", s.TrendRisk, ""), ("波动", s.VolatilityRisk, ""), ("情绪", s.SentimentRisk, "sentiment") })
+                        @foreach (var (label, val, cls) in new[] { ("趋势", s.TrendRisk, "trend-row"), ("波动", s.VolatilityRisk, "volatility-row"), ("情绪", s.SentimentRisk, "sentiment") })
                         {
                             <div class="risk-row @cls @(label == "情绪" && val >= 50 ? "high-sentiment" : "")">
                                 <span class="risk-label">@label</span>
@@ -182,7 +182,7 @@ else
                         }
                         @if (s.Reasons.Any())
                         {
-                            <div class="mt-2" style="color:#555;font-size:11px">
+                            <div class="mt-2" style="color:#9CA3AF;font-size:11px">
                                 @foreach (var r in s.Reasons.Take(2)) { <div>· @r</div> }
                             </div>
                         }
@@ -195,7 +195,7 @@ else
                             @if (s.SupportPrice.HasValue)
                             {
                                 <div class="d-flex justify-content-between">
-                                    <span style="color:#555">支撑 MA20 @(s.SupportBroken ? "⚠已跌破" : "")</span>
+                                    <span style="color:#9CA3AF">支撑 MA20 @(s.SupportBroken ? "⚠已跌破" : "")</span>
                                     <span class="@(s.SupportBroken ? "l3-value down" : "l3-value")">@s.SupportPrice.Value.ToString("F2")</span>
                                 </div>
                             }
@@ -203,21 +203,21 @@ else
                             {
                                 var stopTriggered = rt != null && rt.Price < s.StopLossPrice.Value;
                                 <div class="d-flex justify-content-between">
-                                    <span style="color:#555">止损 @(stopTriggered ? "⚠已触发" : "-2%")</span>
+                                    <span style="color:#9CA3AF">止损 @(stopTriggered ? "⚠已触发" : "-2%")</span>
                                     <span class="l3-value down">@s.StopLossPrice.Value.ToString("F2")</span>
                                 </div>
                             }
                             @if (s.WatchPrice.HasValue)
                             {
                                 <div class="d-flex justify-content-between">
-                                    <span style="color:#555">观察位</span>
+                                    <span style="color:#9CA3AF">观察位</span>
                                     <span class="l3-value warn">@s.WatchPrice.Value.ToString("F2")</span>
                                 </div>
                             }
                             @if (s.TargetPrice.HasValue && s.Decision != Decision.Watch)
                             {
                                 <div class="d-flex justify-content-between">
-                                    <span style="color:#555">目标价</span>
+                                    <span style="color:#9CA3AF">目标价</span>
                                     <span class="l3-value up">@s.TargetPrice.Value.ToString("F2")</span>
                                 </div>
                             }
@@ -230,7 +230,7 @@ else
                 @if (item.Finance != null && item.Finance.Periods.Length > 0)
                 {
                     <div class="layer-finance">
-                        <details>
+                        <details open>
                             <summary>
                                 业绩数据
                                 @if (item.FinanceRiskAdj != 0)
@@ -246,10 +246,10 @@ else
                                     var revYoy = item.Finance.RevenueYoy.Length > i ? item.Finance.RevenueYoy[i] : double.NaN;
                                     bool yi = double.IsNaN(yoy) || double.IsInfinity(yoy);
                                     bool ri = double.IsNaN(revYoy) || double.IsInfinity(revYoy);
-                                    <div style="min-width:110px;border:1px solid #21262d;border-radius:4px;padding:6px 8px">
-                                        <div style="color:#555">@item.Finance.Periods[i]</div>
-                                        <div>净利润 <span class="@(yi?"":"l3-value "+(yoy>0?"up":"down"))">@(yi?"-":$"{yoy:F1}%")</span></div>
-                                        <div>营收 <span class="@(ri?"":"l3-value "+(revYoy>0?"up":"down"))">@(ri?"-":$"{revYoy:F1}%")</span></div>
+                                    <div class="finance-card">
+                                        <div class="fc-period">@item.Finance.Periods[i]</div>
+                                        <div class="fc-row">净利润 <span class="@(yi?"":"l3-value "+(yoy>0?"up":"down"))">@(yi?"-":$"{yoy:F1}%")</span></div>
+                                        <div class="fc-row">营收 <span class="@(ri?"":"l3-value "+(revYoy>0?"up":"down"))">@(ri?"-":$"{revYoy:F1}%")</span></div>
                                     </div>
                                 }
                             </div>
@@ -264,10 +264,10 @@ else
     @if (filteredIgnore2.Any())
     {
         <details class="mt-2">
-            <summary style="color:#444;font-size:12px;cursor:pointer">观望股票（@filteredIgnore2.Count 只）</summary>
+            <summary style="color:#9CA3AF;font-size:12px;cursor:pointer">不参与（@filteredIgnore2.Count 只）</summary>
             <div class="table-responsive mt-2">
-                <table class="table table-sm" style="font-size:12px;color:#888">
-                    <thead><tr style="color:#555"><th>代码</th><th>名称</th><th>收盘</th><th>趋势</th><th>风险</th><th>原因</th></tr></thead>
+                <table class="table table-sm" style="font-size:12px;color:#D1D5DB">
+                    <thead><tr style="color:#9CA3AF"><th>代码</th><th>名称</th><th>收盘</th><th>趋势</th><th>风险</th><th>原因</th></tr></thead>
                     <tbody>
                         @foreach (var item in filteredIgnore2)
                         {

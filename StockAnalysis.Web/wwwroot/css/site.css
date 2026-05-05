@@ -19,7 +19,9 @@ html {
 
 body {
   margin-bottom: 60px;
-  padding-top: 56px; /* 为固定工具栏留空间 */
+  padding-top: 56px;
+  background: #0d1117;
+  color: #D1D5DB;
 }
 
 /* 交易终端顶部工具栏 */
@@ -152,16 +154,23 @@ body {
 .decision-sell   { border-left: 5px solid #dc3545 !important; }
 .decision-ignore { border-left: 5px solid #6c757d !important; }
 
+/* ===== 三级文字体系 =====
+   一级 #FFFFFF / 高亮色  → 价格、决策、风险等级
+   二级 #D1D5DB           → 成交额、换手率、风险拆分、关键价位
+   三级 #9CA3AF           → 日期、MA名称、辅助说明
+   禁止大量使用 #4B5563 深灰
+*/
+
 /* ===== 三层信息结构 ===== */
 
 /* 第一层：3秒决策层 */
 .layer-1 {
-  background: #0d1117;
+  background: #161b22;
   border-radius: 6px 6px 0 0;
-  padding: 10px 14px;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 .l1-row-name {
   display: flex;
@@ -186,30 +195,30 @@ body {
   letter-spacing: 0.5px;
 }
 .layer-1 .stock-name {
-  color: #e0e0e0;
+  color: #ffffff;
   font-size: 15px;
   font-weight: 600;
 }
-.layer-1 .stock-code { color: #666; font-size: 12px; }
+/* 股票代码永远中性色，不跟随涨跌 */
+.layer-1 .stock-code { color: #9CA3AF; font-size: 12px; }
 .layer-1 .price-main {
   font-size: 36px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.5px;
 }
-.layer-1 .price-main.up   { color: #c0392b; }
-.layer-1 .price-main.down { color: #16a34a; }
+.layer-1 .price-main.up   { color: #f05252; }
+.layer-1 .price-main.down { color: #22c55e; }
 .layer-1 .price-pct  { font-size: 22px; font-weight: 700; }
-.layer-1 .price-pct.up   { color: #ff4d4f; }
-.layer-1 .price-pct.down { color: #00c853; }
+.layer-1 .price-pct.up   { color: #f05252; }
+.layer-1 .price-pct.down { color: #22c55e; }
 .layer-1 .emotion-icon { font-size: 20px; line-height: 1; }
 .layer-1 .tag {
   border-radius: 3px;
-  padding: 1px 6px;
+  padding: 2px 7px;
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
-  opacity: 0.85;
 }
 /* 决策颜色 */
 .tag-buy    { background: #e94560; color: #fff; }
@@ -239,23 +248,24 @@ body {
 .tag-value-mid  { background: #ffc107; color: #000; }
 .tag-value-low  { background: #444; color: #aaa; }
 
-/* 第二层：价格行情 */
+/* 第二层：价格行情 — 二级文字 */
 .layer-2 {
-  background: #161b22;
-  padding: 6px 14px;
+  background: #1c2128;
+  padding: 7px 16px;
   display: flex;
-  gap: 16px;
+  gap: 18px;
   flex-wrap: wrap;
   font-size: 12px;
-  color: #888;
-  border-top: 1px solid #21262d;
+  color: #9CA3AF;
+  border-top: 1px solid #2d333b;
 }
-.layer-2 span b { color: #ccc; }
+.layer-2 span b { color: #D1D5DB; font-weight: 600; }
+.layer-2 span[style*="#555"] { color: #9CA3AF !important; }
 
 /* 第三层：交易依据 */
 .layer-3 {
-  background: #0d1117;
-  border-top: 1px solid #21262d;
+  background: #161b22;
+  border-top: 1px solid #2d333b;
   border-radius: 0 0 6px 6px;
 }
 .layer-3 .layer-3-grid {
@@ -264,66 +274,88 @@ body {
   gap: 0;
 }
 .layer-3 .l3-block {
-  padding: 10px 14px;
-  border-right: 1px solid #21262d;
+  padding: 12px 16px;
+  border-right: 1px solid #2d333b;
   font-size: 13px;
 }
 .layer-3 .l3-block:last-child { border-right: none; }
 .layer-3 .l3-title {
   font-size: 11px;
-  color: #555;
+  color: #9CA3AF;
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  font-weight: 600;
 }
-.layer-3 .l3-value { color: #ccc; }
-.layer-3 .l3-value.up   { color: #e94560; }
-.layer-3 .l3-value.down { color: #26a641; }
-.layer-3 .l3-value.warn { color: #ffc107; }
+.layer-3 .l3-value { color: #D1D5DB; }
+.layer-3 .l3-value.up   { color: #f05252; }
+.layer-3 .l3-value.down { color: #22c55e; }
+.layer-3 .l3-value.warn { color: #fbbf24; }
+/* 风险拆分：趋势绿、波动黄、情绪橙 — 标签颜色区分 */
 .layer-3 .risk-row {
   display: flex;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   font-size: 12px;
+  align-items: center;
 }
-.layer-3 .risk-label { color: #666; width: 40px; flex-shrink: 0; }
-.layer-3 .risk-bar-wrap { flex: 1; background: #21262d; border-radius: 2px; height: 8px; margin-top: 4px; }
-.layer-3 .risk-bar { height: 8px; border-radius: 2px; }
-.layer-3 .risk-num { color: #aaa; font-size: 11px; width: 24px; text-align: right; flex-shrink: 0; }
-/* 情绪风险高时整行背景压迫感 */
+.layer-3 .risk-label { color: #D1D5DB; width: 40px; flex-shrink: 0; font-weight: 500; }
+.layer-3 .risk-row.trend-row   .risk-label { color: #4ade80; }
+.layer-3 .risk-row.volatility-row .risk-label { color: #fbbf24; }
+.layer-3 .risk-row.sentiment   .risk-label { color: #fb923c; }
+.layer-3 .risk-bar-wrap { flex: 1; background: #2d333b; border-radius: 3px; height: 10px; }
+.layer-3 .risk-bar { height: 10px; border-radius: 3px; }
+.layer-3 .risk-num { color: #D1D5DB; font-size: 12px; font-weight: 600; width: 28px; text-align: right; flex-shrink: 0; }
 .layer-3 .risk-row.sentiment.high-sentiment {
-  background: rgba(220,53,69,.08);
-  border-radius: 3px;
-  padding: 2px 4px;
-  margin: 0 -4px 4px;
+  background: rgba(251,146,60,.1);
+  border-radius: 4px;
+  padding: 3px 6px;
+  margin: 0 -6px 6px;
 }
 
-/* 业绩折叠区 */
+/* 业绩折叠区 — 重构 */
 .layer-finance {
-  background: #0d1117;
-  border-top: 1px solid #21262d;
-  padding: 8px 14px;
+  background: #1c2128;
+  border-top: 1px solid #2d333b;
+  padding: 10px 16px;
   font-size: 12px;
 }
-.layer-finance summary { color: #555; cursor: pointer; font-size: 12px; }
-.layer-finance summary:hover { color: #888; }
-
-/* 卡片整体 */
-.terminal-card {
-  border: 1px solid #21262d;
+.layer-finance summary { color: #D1D5DB; cursor: pointer; font-size: 12px; font-weight: 500; }
+.layer-finance summary:hover { color: #ffffff; }
+.layer-finance .finance-card {
+  min-width: 110px;
+  background: #21262d;
+  border: 1px solid #2d333b;
   border-radius: 6px;
-  overflow: hidden;
-  margin-bottom: 12px;
+  padding: 8px 10px;
 }
-.terminal-card.decision-buy    { border-left: 5px solid #e94560; }
-.terminal-card.decision-trybuy { border-left: 5px solid #fd7e14; }
-.terminal-card.decision-watch  { border-left: 5px solid #ffc107; }
-.terminal-card.decision-hold   { border-left: 5px solid #0d6efd; }
-.terminal-card.decision-reduce { border-left: 5px solid #fd7e14; }
-.terminal-card.decision-sell   { border-left: 5px solid #dc3545; }
-.terminal-card.decision-ignore { border-left: 5px solid #333; }
+.layer-finance .finance-card .fc-period { color: #9CA3AF; margin-bottom: 4px; font-size: 11px; }
+.layer-finance .finance-card .fc-row { color: #D1D5DB; margin-bottom: 2px; }
+
+/* 卡片整体 — 轻暗黑，有呼吸感 */
+.terminal-card {
+  border: 1px solid #2d333b;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.terminal-card.decision-buy    { border-left: 4px solid #f05252; }
+.terminal-card.decision-trybuy { border-left: 4px solid #fb923c; }
+.terminal-card.decision-watch  { border-left: 4px solid #fbbf24; }
+.terminal-card.decision-hold   { border-left: 4px solid #60a5fa; }
+.terminal-card.decision-reduce { border-left: 4px solid #fb923c; }
+.terminal-card.decision-sell   { border-left: 4px solid #dc3545; }
+.terminal-card.decision-ignore { border-left: 4px solid #374151; }
 
 @media (max-width: 768px) {
   .layer-3 .layer-3-grid { grid-template-columns: 1fr; }
-  .layer-3 .l3-block { border-right: none; border-bottom: 1px solid #21262d; }
+  .layer-3 .l3-block { border-right: none; border-bottom: 1px solid #2d333b; }
 }
+
+/* 机会池暗色表格 */
+.opp-table { color: #D1D5DB; border-color: #2d333b; }
+.opp-table thead th { color: #9CA3AF; border-color: #2d333b; background: #1c2128; font-weight: 600; font-size: 12px; }
+.opp-table tbody tr { border-color: #2d333b; }
+.opp-table tbody tr:hover { background: #1c2128; }
+.opp-table td { border-color: #2d333b; vertical-align: middle; }

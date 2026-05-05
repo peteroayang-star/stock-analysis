@@ -47,8 +47,8 @@ else
         {
             <h6 class="mt-3 mb-2" style="border-left:4px solid @borderColor;padding-left:8px">@title（@group.Count 只）</h6>
             <div class="table-responsive mb-3">
-                <table class="table table-sm table-hover table-bordered">
-                    <thead class="table-light">
+                <table class="table table-sm table-hover opp-table">
+                    <thead>
                         <tr><th>代码</th><th>名称</th><th>决策</th><th>当前价</th><th>风险分</th><th>建议仓位</th><th>止损位</th><th>目标价</th><th>关键原因</th></tr>
                     </thead>
                     <tbody>
@@ -57,15 +57,15 @@ else
                             var s = item.Signal;
                             var price = item.RealTime?.Price ?? s.Close;
                             <tr>
-                                <td>@s.Code</td>
-                                <td>@s.Name</td>
+                                <td style="color:#9CA3AF">@s.Code</td>
+                                <td style="color:#ffffff">@s.Name</td>
                                 <td><span class="badge @BadgeClass(s.Decision)">@DecisionLabel(s.Decision)</span></td>
-                                <td>@price.ToString("F2")</td>
+                                <td style="color:#D1D5DB">@price.ToString("F2")</td>
                                 <td class="@RiskClass(s.RiskScore)">@s.RiskScore</td>
-                                <td>@(s.PositionPct > 0 ? $"{s.PositionPct}%" : "-")</td>
-                                <td class="text-danger">@(s.StopLossPrice?.ToString("F2") ?? "-")</td>
-                                <td class="text-success">@(s.TargetPrice?.ToString("F2") ?? "-")</td>
-                                <td class="small">@string.Join("、", s.Reasons.Take(2))</td>
+                                <td style="color:#D1D5DB">@(s.PositionPct > 0 ? $"{s.PositionPct}%" : "-")</td>
+                                <td style="color:#f05252">@(s.StopLossPrice?.ToString("F2") ?? "-")</td>
+                                <td style="color:#22c55e">@(s.TargetPrice?.ToString("F2") ?? "-")</td>
+                                <td class="small" style="color:#9CA3AF">@string.Join("、", s.Reasons.Take(2))</td>
                             </tr>
                         }
                     </tbody>
@@ -79,19 +79,19 @@ else
         <details class="mt-2">
             <summary class="text-muted small">不参与 / 高风险（@others.Count 只）</summary>
             <div class="table-responsive mt-2">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
+                <table class="table table-sm opp-table">
+                    <thead>
                         <tr><th>代码</th><th>名称</th><th>决策</th><th>风险分</th><th>原因</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var item in others)
                         {
                             <tr>
-                                <td>@item.Signal.Code</td>
-                                <td>@item.Signal.Name</td>
+                                <td style="color:#9CA3AF">@item.Signal.Code</td>
+                                <td style="color:#D1D5DB">@item.Signal.Name</td>
                                 <td><span class="badge @BadgeClass(item.Signal.Decision)">@DecisionLabel(item.Signal.Decision)</span></td>
                                 <td class="@RiskClass(item.Signal.RiskScore)">@item.Signal.RiskScore</td>
-                                <td class="small">@string.Join("、", item.Signal.Reasons)</td>
+                                <td class="small" style="color:#9CA3AF">@string.Join("、", item.Signal.Reasons)</td>
                             </tr>
                         }
                     </tbody>

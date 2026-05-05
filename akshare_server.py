@@ -9,9 +9,6 @@ import sys, io, os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# 设置代理，确保 akshare 能访问 HTTPS 接口
-for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
-    os.environ[_k] = "http://127.0.0.1:7890"
 
 from flask import Flask, Response, jsonify
 import akshare as ak
@@ -42,6 +39,7 @@ def get_stock_list():
             sz = ak.stock_info_sz_name_code(symbol="A股列表")[["A股代码", "A股简称"]].rename(columns={"A股代码": "code", "A股简称": "name"})
             sz["code"] = sz["code"].astype(str).str.zfill(6)
             df = pd.concat([sh, kcb, sz], ignore_index=True)
+            df["name"] = df["name"].apply(_fix_gbk)
         _stock_list = df.set_index("name")["code"].to_dict()
     return _stock_list
 
@@ -49,24 +47,29 @@ def get_hk_stock_list():
     global _hk_stock_list
     if _hk_stock_list is None:
         df = ak.stock_hk_spot_em()[["代码", "名称"]]
+        df["名称"] = df["名称"].apply(_fix_gbk)
         _hk_stock_list = df.set_index("名称")["代码"].to_dict()
     return _hk_stock_list
 
 def is_hk_code(code):
-    return len(code) == 5 and code.isdigit() and not code.startswith(("6", "0", "3"))
+    return len(code) == 5 and code.isdigit()
 
 @app.route("/stock/<code>")
 def get_stock(code):
     try:
         if is_hk_code(code):
-            df = ak.stock_hk_daily(symbol=code, adjust="qfq")
-            df = df.rename(columns={"date": "日期", "open": "开盘", "high": "最高", "low": "最低", "close": "收盘", "volume": "成交量", "amount": "成交额"})
-            cols = [c for c in ["日期", "开盘", "最高", "最低", "收盘", "成交量", "成交额"] if c in df.columns]
-            return Response(df[cols].to_csv(index=False), mimetype="text/csv")
+            df = ak.stock_hk_hist(symbol=code, period="daily", adjust="qfq")
+            cols = [c for c in df.columns if c in ["日期", "开盘", "最高", "最低", "收盘", "成交量", "成交额"]]
+            df = df[cols]
+            for c in ["成交量", "成交额"]:
+                if c in df.columns:
+                    df[c] = df[c].fillna(0).astype("int64")
+            return Response(df.to_csv(index=False), mimetype="text/csv")
         prefix = "sh" if code.startswith("6") else "sz"
         df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
         df = df.rename(columns={"date": "日期", "open": "开盘", "high": "最高", "low": "最低", "close": "收盘", "volume": "成交量", "amount": "成交额"})
         df = df[["日期", "开盘", "最高", "最低", "收盘", "成交量", "成交额"]]
+        df["成交额"] = df["成交额"].fillna(0).astype("int64")
         return Response(df.to_csv(index=False), mimetype="text/csv")
     except Exception as e:
         return {"error": str(e)}, 500
