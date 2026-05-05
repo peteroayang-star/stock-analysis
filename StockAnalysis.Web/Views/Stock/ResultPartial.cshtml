@@ -49,7 +49,7 @@
         : "tag tag-risk-low";
     string RiskLabel(int score) => score >= 70 ? "极高风险" : score >= 50 ? "高风险" : score >= 25 ? "中风险" : "低风险";
     string RiskBarColor(int score) => score >= 70 ? "#dc3545" : score >= 50 ? "#fd7e14" : score >= 25 ? "#ffc107" : "#198754";
-    string ValueTagClass(int score) => score >= 60 ? "tag tag-value-high" : score >= 30 ? "tag tag-value-mid" : "tag tag-value-low";
+
     string TrendClass(Trend t) => t switch { Trend.Up => "up", Trend.Down => "down", _ => "warn" };
     string TrendLabel(Trend t) => t switch { Trend.Up => "上涨偏强", Trend.Down => "下跌偏弱", _ => "震荡中性" };
     string TrendStageLabel(TrendStage s) => s switch {

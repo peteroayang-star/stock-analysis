@@ -120,6 +120,17 @@ public class StockController : Controller
             }
             s.RiskScore = Math.Clamp(s.RiskScore + finAdj, 0, 100);
 
+            // 用实时价重算关键价位（避免本地CSV数据过期导致价位与现价严重偏离）
+            if (rt != null && rt.Price > 0)
+            {
+                var p = rt.Price;
+                s.StopLossPrice = Math.Round(p * 0.98m, 2);
+                s.WatchPrice    = Math.Round(p * 1.03m, 2);
+                if (s.TargetPrice.HasValue)
+                    s.TargetPrice = Math.Round(p * 1.08m, 2);
+                s.SupportPrice  = Math.Round(p * 0.95m, 2);
+            }
+
             items.Add(new SignalWithSuggestion
             {
                 Signal         = s,
