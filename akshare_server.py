@@ -17,9 +17,6 @@ from flask import Flask, Response, jsonify
 import akshare as ak
 import pandas as pd
 
-# 屏蔽北交所接口（SSL 不稳定），避免 stock_info_a_code_name 因此崩溃
-ak.stock_info_bj_name_code = lambda: pd.DataFrame(columns=["证券代码", "证券简称"])
-
 app = Flask(__name__)
 
 # 启动时加载股票列表缓存
@@ -36,7 +33,15 @@ def _fix_gbk(s):
 def get_stock_list():
     global _stock_list
     if _stock_list is None:
-        df = ak.stock_info_a_code_name()
+        try:
+            df = ak.stock_info_a_code_name()
+        except Exception:
+            # 北交所 SSL 偶发失败时，降级为只加载沪深
+            sh = ak.stock_info_sh_name_code(symbol="主板A股")[["证券代码", "证券简称"]].rename(columns={"证券代码": "code", "证券简称": "name"})
+            kcb = ak.stock_info_sh_name_code(symbol="科创板")[["证券代码", "证券简称"]].rename(columns={"证券代码": "code", "证券简称": "name"})
+            sz = ak.stock_info_sz_name_code(symbol="A股列表")[["A股代码", "A股简称"]].rename(columns={"A股代码": "code", "A股简称": "name"})
+            sz["code"] = sz["code"].astype(str).str.zfill(6)
+            df = pd.concat([sh, kcb, sz], ignore_index=True)
         _stock_list = df.set_index("name")["code"].to_dict()
     return _stock_list
 
@@ -86,15 +91,17 @@ def search_stock(name):
         for k, v in stock_list.items():
             if name_norm in normalize(k):
                 return jsonify({"code": v, "name": k})
-        # 港股精确匹配
-        hk_list = get_hk_stock_list()
-        for k, v in hk_list.items():
-            if normalize(k) == name_norm:
-                return jsonify({"code": v, "name": k, "market": "hk"})
-        # 港股模糊匹配
-        for k, v in hk_list.items():
-            if name_norm in normalize(k):
-                return jsonify({"code": v, "name": k, "market": "hk"})
+        # 港股匹配（接口失败时跳过，不影响A股查询）
+        try:
+            hk_list = get_hk_stock_list()
+            for k, v in hk_list.items():
+                if normalize(k) == name_norm:
+                    return jsonify({"code": v, "name": k, "market": "hk"})
+            for k, v in hk_list.items():
+                if name_norm in normalize(k):
+                    return jsonify({"code": v, "name": k, "market": "hk"})
+        except Exception:
+            pass
         return {"error": "not found"}, 404
     except Exception as e:
         return {"error": str(e)}, 500
