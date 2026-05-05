@@ -46,6 +46,11 @@ def normalize(s):
 @app.route("/search/<name>")
 def search_stock(name):
     try:
+        # 兼容浏览器直接发送未编码中文 URL 时 Werkzeug 用 latin-1 错误解码的情况
+        try:
+            name = name.encode('latin-1').decode('utf-8')
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            pass
         stock_list = get_stock_list()
         name_norm = normalize(name)
         for k, v in stock_list.items():
