@@ -64,7 +64,7 @@ public class StockAnalyzer
         // 5. 强制规则所需标志
         bool belowMA20 = ind != null && bar.Close < ind.MA20;
         bool macdDead = riskReasons.Any(r => r.Contains("MACD死叉"));
-        decimal stopLoss = ind != null ? Math.Round(ind.MA20 * 0.98m, 2) : 0;
+        decimal stopLoss = Math.Round(bar.Close * 0.98m, 2);  // 当前价-2%作为止损
         bool belowStopLoss = stopLoss > 0 && bar.Close <= stopLoss;
 
         // 6. 决策
@@ -96,9 +96,9 @@ public class StockAnalyzer
         if (mode == TradingMode.Portfolio && dec == Decision.Sell && cycle.Cycle == MarketCycle.End)
             reasons.Insert(0, cycle.Description);
 
-        // 9. 目标价（空仓时清除）
+        // 9. 目标价（基于当前价格，空仓时清除）
         decimal? targetPrice = (dec == Decision.Ignore || dec == Decision.Sell)
-            ? null : ind != null ? Math.Round(ind.MA10 * 1.08m, 2) : null;
+            ? null : Math.Round(bar.Close * 1.05m, 2);  // 当前价+5%作为目标
 
         // 10. 辅助标记
         bool supportBroken = belowMA20;
@@ -201,37 +201,49 @@ public class StockAnalyzer
             return dec switch
             {
                 Decision.Buy or Decision.TryBuy
-                    => ("情绪龙头，关注连板强度与换手，高位博弈需严控仓位，快进快出", 10),
+                    => ("情绪龙头，连板强度与换手需关注，高位博弈风险较高", 15),
                 Decision.Watch
-                    => ("情绪高位，等待情绪回落或缩量企稳后再介入", 0),
+                    => ("情绪高位，等待情绪回落或缩量企稳", 0),
                 Decision.Hold
-                    => ("龙头持有，密切关注放量滞涨信号，出现则立即减仓", 0),
+                    => ("龙头持有，关注放量滞涨信号", 0),
                 Decision.Reduce
-                    => ("情绪见顶风险，建议减仓50%以上，保留少量底仓", 0),
+                    => ("情绪见顶风险，分歧增强", 0),
                 Decision.Sell
-                    => ("情绪崩塌，立即清仓离场", 0),
-                _ => ("情绪博弈风险极高，不参与", 0)
+                    => ("情绪转弱，趋势结构恶化", 0),
+                _ => ("情绪博弈风险极高", 0)
             };
         }
+
+        // 半仓条件：倍量突破 + 低风险 + 主升阶段 + 放量进攻
+        if (dec == Decision.Buy && signal == BuySignalType.VolumeBreakout &&
+            risk <= 20 && cycle.Cycle == MarketCycle.MainUp &&
+            vol.State == VolumeState.AggressiveBuy)
+            return ("倍量突破确认，主升阶段，量价配合极佳", 50);
+
+        // 40%仓位：倍量突破 + 低风险 + 一致阶段
+        if (dec == Decision.Buy && signal == BuySignalType.VolumeBreakout &&
+            risk <= 25 && cycle.Cycle == MarketCycle.Consensus)
+            return ("倍量突破确认，量价配合良好", 40);
+
         return dec switch
         {
             Decision.Buy when signal == BuySignalType.VolumeBreakout
-                => ("倍量突破确认，可轻仓试错，突破后加仓", 30),
+                => ("倍量突破确认，量价配合良好", 35),
             Decision.Buy when signal == BuySignalType.TrendPullback
-                => ("上涨趋势仍在，回调未破关键均线，可轻仓试错", 25),
+                => ("上涨趋势仍在，回调未破关键均线", 30),
             Decision.Buy
-                => ("信号出现，可小仓位介入，观察后续走势", 20),
+                => ("信号出现，量价关系健康", 25),
             Decision.TryBuy
-                => ("价格突破观察位且趋势向上，可小仓参与（10%-20%），严格止损", 15),
+                => ("价格突破观察位且趋势向上", 15),
             Decision.Watch
                 => ("暂时观望，等待更明确信号或风险降低", 0),
             Decision.Hold
-                => ("持有不动，继续观察趋势", 0),
+                => ("持续观察趋势演化", 0),
             Decision.Reduce
-                => ("风险上升，建议减仓50%，保留底仓", 0),
+                => ("风险上升，高位分歧明显", 0),
             Decision.Sell
-                => ("触发止损，立即清仓离场", 0),
-            _ => ("不参与，无明确信号", 0)
+                => ("触发止损位，趋势结构破坏", 0),
+            _ => ("无明确信号", 0)
         };
     }
 }

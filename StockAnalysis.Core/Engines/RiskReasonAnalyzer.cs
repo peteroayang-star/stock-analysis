@@ -40,17 +40,17 @@ public class RiskReasonAnalyzer
     public string Suggestion(BuySignalType signal, Decision decision, List<string> reasons)
     {
         if (decision == Decision.Buy)
-            return $"{SignalName(signal)}，风险可控，可轻仓介入，注意量能配合";
+            return $"{SignalName(signal)}，风险可控，量能配合良好";
         if (decision == Decision.TryBuy)
-            return "价格突破观察位，趋势向上且风险较低，可小仓试错，存在假突破风险需严格止损";
+            return "价格突破观察位，趋势向上且风险较低，需关注假突破风险";
         if (decision == Decision.Watch)
             return $"{SignalName(signal)}，但存在{string.Join("、", reasons)}，观察次日是否站稳";
         if (decision == Decision.Sell)
-            return "风险过高，建议止损离场";
+            return "风险过高，趋势结构恶化";
         if (decision == Decision.Reduce)
-            return "风险偏高，建议减仓至半仓以下";
+            return "风险偏高，高位分歧增强";
         if (decision == Decision.Hold)
-            return "趋势健康，持有等待信号";
+            return "趋势健康，持续观察量价配合";
         return "无明显信号，暂时观望";
     }
 

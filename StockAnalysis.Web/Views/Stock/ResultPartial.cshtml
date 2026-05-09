@@ -5,9 +5,9 @@
     var firstItem = Model.Items.FirstOrDefault();
 
     string DecisionLabel(Decision d) => d switch {
-        Decision.Buy    => "🟢 可参与", Decision.TryBuy => "🟢 可以试错",
-        Decision.Watch  => "🟡 观察等待", Decision.Hold   => "🔵 持有不动",
-        Decision.Reduce => "🟠 高位博弈", Decision.Sell   => "🔴 禁止参与",
+        Decision.Buy    => "🟢 趋势向上", Decision.TryBuy => "🟢 突破确认",
+        Decision.Watch  => "🟡 观察等待", Decision.Hold   => "🔵 持有观察",
+        Decision.Reduce => "🟠 高位博弈", Decision.Sell   => "🔴 风险增强",
         _               => "⚪ 观察股票"
     };
     string DecisionTagClass(Decision d) => d switch {
@@ -27,13 +27,13 @@
         : stage.Contains("一致") || stage.Contains("分歧") ? "tag tag-cycle-mid"
         : "tag tag-cycle-down";
     string SmartMoneyLabel(SmartMoneyBehavior b) => b switch {
-        SmartMoneyBehavior.Accumulation     => "主力吸筹",
-        SmartMoneyBehavior.Washout          => "主力洗盘",
+        SmartMoneyBehavior.Accumulation     => "资金吸筹",
+        SmartMoneyBehavior.Washout          => "洗盘整理",
         SmartMoneyBehavior.DivergenceSwap   => "高位分歧",
         SmartMoneyBehavior.AggressiveAttack => "主动进攻",
         SmartMoneyBehavior.HighShock        => "高位震荡",
         SmartMoneyBehavior.Distribution     => "疑似派发",
-        SmartMoneyBehavior.Dumping          => "主力出货",
+        SmartMoneyBehavior.Dumping          => "资金流出",
         _                                   => ""
     };
     string SmartMoneyTagClass(SmartMoneyBehavior b) => b switch {
@@ -92,11 +92,11 @@ else
         var pctClass = rt != null ? (rt.ChangePct >= 0 ? "up" : "down") : "";
         var pctSign  = rt != null && rt.ChangePct >= 0 ? "+" : "";
         var amountStr = rt != null ? (rt.Amount >= 10000 ? $"{rt.Amount/10000:F1}亿" : $"{rt.Amount:F0}万") : "";
-        var emotionIcon = rt != null && rt.ChangePct >= 9.9m ? "🔥"
-            : rt != null && rt.ChangePct >= 5m ? "🚀"
-            : rt != null && rt.ChangePct <= -5m ? "⚠"
-            : !string.IsNullOrEmpty(s.VolumeDescription) && s.VolumeDescription.Contains("放量") ? "💥"
-            : !string.IsNullOrEmpty(s.VolumeDescription) && s.VolumeDescription.Contains("缩量") ? "🌀"
+        var emotionIcon = rt != null && rt.ChangePct >= 9.9m ? "📈"
+            : rt != null && rt.ChangePct >= 5m ? "↗"
+            : rt != null && rt.ChangePct <= -5m ? "↘"
+            : !string.IsNullOrEmpty(s.VolumeDescription) && s.VolumeDescription.Contains("放量") ? "📊"
+            : !string.IsNullOrEmpty(s.VolumeDescription) && s.VolumeDescription.Contains("缩量") ? "—"
             : "";
         <div class="terminal-card @DecisionBorderClass(s.Decision)">
 
@@ -126,15 +126,73 @@ else
                 <div class="l1-row-tags">
                     @if (s.IsEmotionLeader)
                     { <span class="tag tag-smart-attack">情绪龙头</span> }
+
+                    @* 风险标签体系 *@
+                    @{
+                        var riskTag = "";
+                        var riskClass = "tag tag-smart-dist";
+
+                        // 1. 情绪投机型：连板+高换手+短期涨幅大
+                        if (s.LimitUpCountIn14Days >= 2 && rt != null && rt.Turnover > 15 && rt.ChangePct > 5)
+                        {
+                            riskTag = "⚠ 情绪投机型";
+                        }
+                        // 2. 财务风险型：业绩下滑
+                        else if (item.FinanceRiskAdj > 15)
+                        {
+                            riskTag = "⚠ 财务风险型";
+                        }
+                        // 3. 低价高波动型：价格低+波动大
+                        else if (s.Close < 5 && s.VolatilityRisk >= 40)
+                        {
+                            riskTag = "⚠ 低价高波动型";
+                        }
+                        // 4. 游资博弈型：高换手+放量滞涨
+                        else if (rt != null && rt.Turnover > 20 && s.VolumeDescription?.Contains("放量滞涨") == true)
+                        {
+                            riskTag = "⚠ 游资博弈型";
+                        }
+                        // 5. 高位分歧型：高位+放量派发
+                        else if (s.VolumeDescription?.Contains("放量派发") == true || s.SupportBroken)
+                        {
+                            riskTag = "⚠ 高位分歧型";
+                        }
+                        // 6. 综合高风险：风险分≥70
+                        else if (s.RiskScore >= 70 || s.SentimentRisk >= 70)
+                        {
+                            riskTag = "⚠ 综合高风险";
+                        }
+
+                        if (!string.IsNullOrEmpty(riskTag))
+                        {
+                            <span class="@riskClass">@riskTag</span>
+                        }
+                    }
+
                     @if (!string.IsNullOrEmpty(s.CycleStage))
                     { <span class="@CycleTagClass(s.CycleStage)">@s.CycleStage</span> }
                     @if (!string.IsNullOrEmpty(s.VolumeDescription))
-                    { <span class="tag tag-smart-other">@s.VolumeDescription</span> }
+                    {
+                        <span class="tag tag-smart-other">@s.VolumeDescription</span>
+                        var volumeExplain = s.VolumeDescription switch {
+                            "放量进攻" => "新增资金参与度提升",
+                            "缩量整理" or "缩量回踩" => "抛压暂时有限，持续性需观察",
+                            "放量滞涨" => "高位分歧增强，追价意愿下降",
+                            "放量派发" => "兑现压力增强",
+                            "弱承接" => "承接力度偏弱",
+                            "无量横盘" => "市场进入观望阶段",
+                            _ => ""
+                        };
+                        if (!string.IsNullOrEmpty(volumeExplain))
+                        {
+                            <span class="tag" style="background:#2d3748;color:#9CA3AF;border:none">@volumeExplain</span>
+                        }
+                    }
                     @if (s.SmartMoney != SmartMoneyBehavior.None)
                     { <span class="@SmartMoneyTagClass(s.SmartMoney)">@SmartMoneyLabel(s.SmartMoney)</span> }
                     <span class="@RiskTagClass(s.RiskScore)">@RiskLabel(s.RiskScore) @s.RiskScore</span>
                     @if (s.LimitUpCountIn14Days > 0)
-                    { <span class="tag tag-buy">涨停×@s.LimitUpCountIn14Days</span> }
+                    { <span class="tag tag-buy">14日内涨停@(s.LimitUpCountIn14Days)次</span> }
                 </div>
             </div>
 
@@ -152,8 +210,45 @@ else
                 </div>
             }
 
-            
             <div class="layer-3">
+                <!-- 市场状态分析 -->
+                <div class="l3-block" style="grid-column: 1 / -1; background:#1a1f2e;padding:12px;border-radius:4px;margin-bottom:12px">
+                    <div class="l3-title" style="color:#60A5FA">当前市场状态</div>
+                    <div class="l3-value" style="font-size:14px;color:#E5E7EB;margin-top:8px">
+                        @{
+                            var marketState = (s.VolumeDescription, s.Trend, s.TrendStage) switch {
+                                (var v, Trend.Up, TrendStage.EarlyUp) when v.Contains("放量") => "放量突破阶段",
+                                (var v, Trend.Up, _) when v.Contains("缩量") => "缩量上涨阶段",
+                                (var v, _, _) when v.Contains("放量滞涨") => "高位分歧阶段",
+                                (var v, Trend.Sideways, _) when v.Contains("缩量") => "缩量整理阶段",
+                                (var v, Trend.Down, _) when v.Contains("放量") => "放量回调阶段",
+                                (_, Trend.Up, TrendStage.LateUp) => "趋势修复阶段",
+                                (var v, _, _) when v.Contains("回踩") => "回踩确认阶段",
+                                _ => "资金博弈阶段"
+                            };
+                        }
+                        <strong>@marketState</strong>
+                    </div>
+                    <div style="color:#9CA3AF;font-size:12px;margin-top:8px;line-height:1.6">
+                        @if (!string.IsNullOrEmpty(s.VolumeDescription))
+                        {
+                            <div>· 量价关系：@s.VolumeDescription</div>
+                        }
+                        @if (s.Trend != Trend.Sideways)
+                        {
+                            <div>· 趋势状态：@TrendLabel(s.Trend)</div>
+                        }
+                        @if (rt != null && s.Close > 0)
+                        {
+                            var volRatio = rt.Amount / (s.Close * 10000);
+                            if (volRatio > 1.3m)
+                            {
+                                <div>· 成交量较前期提升 @(((volRatio - 1) * 100).ToString("F0"))%</div>
+                            }
+                        }
+                    </div>
+                </div>
+
                 <div class="layer-3-grid">
 
                     
@@ -167,7 +262,7 @@ else
                         { <div class="mt-2"><span class="tag tag-hold">建议仓位 @s.PositionPct%</span></div> }
                     </div>
 
-                    
+
                     <div class="l3-block">
                         <div class="l3-title">风险拆分</div>
                         @foreach (var (label, val, cls) in new[] { ("趋势", s.TrendRisk, "trend-row"), ("波动", s.VolatilityRisk, "volatility-row"), ("情绪", s.SentimentRisk, "sentiment") })
@@ -186,9 +281,35 @@ else
                                 @foreach (var r in s.Reasons.Take(2)) { <div>· @r</div> }
                             </div>
                         }
+
+                        @* 承接分析 *@
+                        @if (rt != null && s.SupportPrice.HasValue)
+                        {
+                            var supportHold = rt.Price >= s.SupportPrice.Value;
+                            var priceNearMA = s.SupportPrice.HasValue && Math.Abs(rt.Price - s.SupportPrice.Value) / s.SupportPrice.Value < 0.02m;
+                            <div class="mt-2 pt-2" style="border-top:1px solid #374151">
+                                <div style="color:#9CA3AF;font-size:11px;font-weight:600;margin-bottom:4px">承接观察</div>
+                                @if (supportHold)
+                                {
+                                    <div style="color:#10B981;font-size:11px">· 均线支撑有效</div>
+                                }
+                                else if (s.SupportBroken)
+                                {
+                                    <div style="color:#EF4444;font-size:11px">· 已跌破关键均线</div>
+                                }
+                                @if (s.VolumeDescription?.Contains("缩量") == true && rt.ChangePct < 0)
+                                {
+                                    <div style="color:#9CA3AF;font-size:11px">· 回落缩量，恐慌不明显</div>
+                                }
+                                @if (s.VolumeDescription?.Contains("放量") == true && rt.ChangePct < -2)
+                                {
+                                    <div style="color:#F59E0B;font-size:11px">· 放量回落，抛压增加</div>
+                                }
+                            </div>
+                        }
                     </div>
 
-                    
+
                     <div class="l3-block">
                         <div class="l3-title">关键价位</div>
                         <div class="d-flex flex-column gap-1" style="font-size:12px">
@@ -198,6 +319,10 @@ else
                                     <span style="color:#9CA3AF">支撑 MA20 @(s.SupportBroken ? "⚠已跌破" : "")</span>
                                     <span class="@(s.SupportBroken ? "l3-value down" : "l3-value")">@s.SupportPrice.Value.ToString("F2")</span>
                                 </div>
+                                @if (s.SupportBroken)
+                                {
+                                    <div style="color:#9CA3AF;font-size:11px">跌破后：短线趋势可能转弱</div>
+                                }
                             }
                             @if (s.StopLossPrice.HasValue)
                             {
@@ -206,6 +331,10 @@ else
                                     <span style="color:#9CA3AF">止损 @(stopTriggered ? "⚠已触发" : "-2%")</span>
                                     <span class="l3-value down">@s.StopLossPrice.Value.ToString("F2")</span>
                                 </div>
+                                @if (stopTriggered)
+                                {
+                                    <div style="color:#9CA3AF;font-size:11px">触发后：量价结构将明显恶化</div>
+                                }
                             }
                             @if (s.WatchPrice.HasValue)
                             {
@@ -220,6 +349,7 @@ else
                                     <span style="color:#9CA3AF">目标价</span>
                                     <span class="l3-value up">@s.TargetPrice.Value.ToString("F2")</span>
                                 </div>
+                                <div style="color:#9CA3AF;font-size:11px">若放量突破：可能进入加速段</div>
                             }
                         </div>
                     </div>

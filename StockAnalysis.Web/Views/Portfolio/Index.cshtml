@@ -30,12 +30,6 @@
         Decision.Sell   => "止损离场",
         _               => "暂时观望"
     };
-    string SignalLabel(BuySignalType t) => t switch {
-        BuySignalType.VolumeBreakout  => "倍量突破",
-        BuySignalType.PullbackSupport => "缩量回踩",
-        BuySignalType.VolumeWashout   => "凹量洗盘",
-        _                             => "无信号"
-    };
 }
 
 <div class="d-flex align-items-center mb-3 gap-2">
