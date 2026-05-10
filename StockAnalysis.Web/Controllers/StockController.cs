@@ -88,7 +88,11 @@ public class StockController : Controller
         List<StockBar>? marketBars = null;
         try { (marketBars, _) = await _marketData.TryGetBarsAsync("000001"); } catch { }
 
-        var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
+        List<MinuteBar>? minuteBars = null;
+        if (bars.Last().Date.Date >= DateTime.Today.AddDays(-1))
+            minuteBars = await _marketData.TryGetMinuteBarsAsync(bars.Last().Code, bars.Last().Date);
+
+        var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars, minuteBars);
         ViewBag.ExcludeReason = _analyzer.LastExcludeReason;
         var ranked = _ranker.Rank(signals);
         var items = new List<SignalWithSuggestion>();

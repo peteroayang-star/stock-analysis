@@ -14,6 +14,7 @@ public class StockAnalyzer
     private readonly VolumeEngine _volume = new();
     private readonly CycleDetector _cycle = new();
     private readonly SmartMoneyEngine _smartMoney = new();
+    private readonly IntradayStrengthEngine _intraday = new();
 
     public string? LastExcludeReason { get; private set; }
 
@@ -24,7 +25,7 @@ public class StockAnalyzer
         _filter = new StockFilter(cfg.Filter);
     }
 
-    public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate, List<StockBar>? marketBars = null)
+    public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate, List<StockBar>? marketBars = null, List<MinuteBar>? minuteBars = null)
     {
         int last = bars.Count - 1;
         if (last < 28) return [];
@@ -53,6 +54,7 @@ public class StockAnalyzer
         var riskScore = riskResult.Total;
         var riskReasons = riskResult.Reasons;
         var smartMoney = _smartMoney.Analyze(bars, last, vol);
+        var intraday = _intraday.Analyze(bars, last, minuteBars);
 
         // 4. 趋势
         var trend = ind != null && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20 ? Trend.Up
@@ -115,7 +117,7 @@ public class StockAnalyzer
         bool isEmotionLeader = limitUpCount >= 2
             || smartMoney.Behavior == SmartMoneyBehavior.AggressiveAttack
             || (smartMoney.Behavior == SmartMoneyBehavior.HighShock && riskResult.SentimentRisk >= 50);
-        var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol, isEmotionLeader);
+        var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol, isEmotionLeader, intraday.Grade);
 
         // 13. 信号强度
         string strength = (belowMA20 && macdDead) || cycle.Cycle == MarketCycle.End ? "弱"
@@ -149,6 +151,19 @@ public class StockAnalyzer
         else if (riskScore >= 51) tradeValue = (int)(tradeValue * 0.7);
         tradeValue = Math.Min(tradeValue, 100);
 
+        // 15. 次日涨停潜力评分（分时强度 + 5日线 + 换手率 + 量能结构）
+        int limitUpScore = 0;
+        limitUpScore += (int)(intraday.Score * 0.4);  // 分时强度权重40%
+        if (ind != null && bar.Close > ind.MA5) limitUpScore += 15;  // 站稳5日线
+        if (vol.State == VolumeState.AggressiveBuy) limitUpScore += 20;
+        else if (vol.State == VolumeState.ShrinkConsolidate) limitUpScore += 10;
+        if (limitUpCount > 0) limitUpScore += Math.Min(limitUpCount * 5, 15);  // 连板动能
+        if (intraday.Pattern == IntradayPattern.TailTrap || intraday.Pattern == IntradayPattern.SmartExit)
+            limitUpScore = (int)(limitUpScore * 0.3);  // 诱多/撤退大幅折扣
+        if (riskScore >= 66) limitUpScore = (int)(limitUpScore * 0.4);
+        else if (riskScore >= 51) limitUpScore = (int)(limitUpScore * 0.7);
+        limitUpScore = Math.Min(limitUpScore, 100);
+
         return [new StockSignal
         {
             Code = bar.Code, Name = bar.Name, Date = bar.Date, Close = bar.Close,
@@ -159,7 +174,10 @@ public class StockAnalyzer
             WatchPrice    = ind != null ? Math.Round(ind.MA10 * 1.02m, 2) : null,
             TargetPrice   = targetPrice,
             Trend = trend, TrendStage = trendStage,
-            ActionAdvice = action, PositionPct = position,
+            ActionAdvice = action,
+            PositionPct = intraday.IsDangerZone ? 0
+                        : intraday.Grade == AttackGrade.B ? Math.Min(position, 15)
+                        : position,
             LimitUpCountIn14Days = limitUpCount,
             AvgVolume10 = ind != null ? (long)ind.VolMA10 : 0,
             SupportBroken = supportBroken,
@@ -173,7 +191,16 @@ public class StockAnalyzer
             TrendRisk = riskResult.TrendRisk,
             VolatilityRisk = riskResult.VolatilityRisk,
             SentimentRisk = riskResult.SentimentRisk,
-            IsEmotionLeader = isEmotionLeader
+            IsEmotionLeader = isEmotionLeader,
+            IntradayStrengthScore = intraday.Score,
+            AttackWillDescription = intraday.AttackWill switch {
+                AttackWill.Strong => "强", AttackWill.Medium => "中", _ => "弱"
+            },
+            IntradayPattern = intraday.Description,
+            IntradayPatternType = intraday.Pattern,
+            NextDayLimitUpScore = intraday.IsDangerZone ? 0 : limitUpScore,
+            AttackGrade = intraday.Grade,
+            IntradayDangerZone = intraday.IsDangerZone
         }];
     }
 
@@ -194,7 +221,7 @@ public class StockAnalyzer
 
     private (string action, int position) GenerateAdvice(
         Decision dec, BuySignalType signal, int risk, Trend trend,
-        CycleResult cycle, VolumeResult vol, bool isEmotionLeader)
+        CycleResult cycle, VolumeResult vol, bool isEmotionLeader, AttackGrade grade = AttackGrade.B)
     {
         if (isEmotionLeader)
         {
@@ -233,6 +260,10 @@ public class StockAnalyzer
                 => ("上涨趋势仍在，回调未破关键均线", 30),
             Decision.Buy
                 => ("信号出现，量价关系健康", 25),
+            Decision.TryBuy when trend == Trend.Up && (grade == AttackGrade.S || grade == AttackGrade.A) && risk <= 25
+                => ("突破确认，趋势向上，分时强势，可积极建仓", 50),
+            Decision.TryBuy when trend == Trend.Up && (grade == AttackGrade.S || grade == AttackGrade.A)
+                => ("突破确认，趋势向上，分时结构良好", 30),
             Decision.TryBuy
                 => ("价格突破观察位且趋势向上", 15),
             Decision.Watch

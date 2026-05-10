@@ -1,5 +1,22 @@
 namespace StockAnalysis.Core.Models;
 
+/// <summary>分时形态</summary>
+public enum IntradayPattern
+{
+    MainUpTrend,    // 主升趋势
+    StepwiseUp,     // 阶梯式推升（控节奏推升）
+    HealthyWashout, // 健康洗盘
+    WeakRecovery,   // 弱势修复
+    TailTrap,       // 尾盘诱多
+    SmartExit       // 主力撤退
+}
+
+/// <summary>主力进攻意愿</summary>
+public enum AttackWill { Strong, Medium, Weak }
+
+/// <summary>资金进攻等级 S=主升抢筹 A=阶梯推升/强势承接 B=健康洗盘/修复震荡 C=尾盘诱多/主力撤退</summary>
+public enum AttackGrade { S, A, B, C }
+
 /// <summary>买入信号类型</summary>
 public enum BuySignalType
 {
@@ -125,4 +142,18 @@ public class StockSignal
     public int SentimentRisk { get; set; }
     /// <summary>是否为情绪龙头股（涨停多/主动进攻/高位博弈）</summary>
     public bool IsEmotionLeader { get; set; }
+    /// <summary>分时主动强度评分（0-100）</summary>
+    public int IntradayStrengthScore { get; set; }
+    /// <summary>主力进攻意愿（强/中/弱）</summary>
+    public string AttackWillDescription { get; set; } = "";
+    /// <summary>分时形态描述（主升趋势/健康洗盘/弱势修复/尾盘诱多/主力撤退）</summary>
+    public string IntradayPattern { get; set; } = "";
+    /// <summary>分时形态枚举，用于视图判断</summary>
+    public IntradayPattern IntradayPatternType { get; set; }
+    /// <summary>次日涨停潜力评分（0-100，综合分时强度、5日线、换手率、量能）</summary>
+    public int NextDayLimitUpScore { get; set; }
+    /// <summary>资金进攻等级 S/A/B/C</summary>
+    public AttackGrade AttackGrade { get; set; }
+    /// <summary>危险覆盖：弱势结构触发，隐藏仓位/涨停潜力</summary>
+    public bool IntradayDangerZone { get; set; }
 }

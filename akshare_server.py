@@ -15,6 +15,7 @@ import akshare as ak
 import pandas as pd
 
 app = Flask(__name__)
+app.json.ensure_ascii = False
 
 # 启动时加载股票列表缓存
 _stock_list = None
@@ -133,7 +134,9 @@ def get_realtime(code):
 @app.route("/minute/<code>")
 def get_minute(code):
     try:
-        df = ak.stock_zh_a_minute(symbol=code, period="1", adjust="qfq")
+        prefix = "sh" if code.startswith("6") else "sz"
+        symbol = f"{prefix}{code}" if not code.startswith(("sh", "sz")) else code
+        df = ak.stock_zh_a_minute(symbol=symbol, period="1", adjust="qfq")
         df = df[["day", "open", "high", "low", "close", "volume"]]
         return Response(df.to_csv(index=False), mimetype="text/csv")
     except Exception as e:

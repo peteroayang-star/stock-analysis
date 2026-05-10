@@ -19,6 +19,9 @@ public class MarketDataService
         _builtinPath = Path.Combine(env.WebRootPath, "data");
     }
 
+    public Task<List<MinuteBar>?> TryGetMinuteBarsAsync(string code, DateTime? expectedDate = null)
+        => _akShare.TryGetMinuteBarsAsync(code, expectedDate);
+
     public async Task<(List<StockBar>? Bars, string? Error)> TryGetBarsAsync(string input)
     {
         var (code, name) = await _akShare.ResolveAsync(input);

@@ -101,6 +101,36 @@ public class AkShareDataService
         }
     }
 
+    public async Task<List<MinuteBar>?> TryGetMinuteBarsAsync(string code, DateTime? expectedDate = null)
+    {
+        try
+        {
+            var csv = await _http.GetStringAsync($"http://127.0.0.1:5100/minute/{code}");
+            var lines = csv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            var all = new List<MinuteBar>();
+            foreach (var line in lines.Skip(1))
+            {
+                var p = line.Split(',');
+                if (p.Length < 6) continue;
+                if (!DateTime.TryParse(p[0].Trim(), out var t)) continue;
+                all.Add(new MinuteBar {
+                    Time   = t,
+                    Open   = decimal.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture),
+                    High   = decimal.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture),
+                    Low    = decimal.Parse(p[3], System.Globalization.CultureInfo.InvariantCulture),
+                    Close  = decimal.Parse(p[4], System.Globalization.CultureInfo.InvariantCulture),
+                    Volume = long.Parse(p[5].Trim())
+                });
+            }
+            if (all.Count == 0) return null;
+            // 取最新交易日的分时数据（忽略 expectedDate，因为非交易日时接口返回上一交易日数据）
+            var latestDate = all.Max(b => b.Time.Date);
+            var result = all.Where(b => b.Time.Date == latestDate).ToList();
+            return result.Count > 0 ? result : null;
+        }
+        catch { return null; }
+    }
+
     public async Task<List<string>> GetSectorsAsync()
     {
         try

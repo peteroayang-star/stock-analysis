@@ -48,7 +48,11 @@ public class OpportunityController : Controller
             var (bars, _) = await _marketData.TryGetBarsAsync(code);
             if (bars == null) { failed.Add(code); continue; }
 
-            var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
+            List<MinuteBar>? minuteBars = null;
+            if (bars.Last().Date.Date >= DateTime.Today.AddDays(-1))
+                minuteBars = await _marketData.TryGetMinuteBarsAsync(bars.Last().Code, bars.Last().Date);
+
+            var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars, minuteBars);
             var ranked = _ranker.Rank(signals);
             foreach (var s in ranked)
             {
