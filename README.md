@@ -34,6 +34,34 @@ A 股技术分析平台，集信号检测、风险评分、AI 辅助分析与持
 
 双栈设计：C# 负责计算密集型分析，Python 负责数据采集，通过 HTTP 解耦。
 
+## 项目结构
+
+```
+stock-analysis/
+├── StockAnalysis.Core/          # 分析引擎（纯 C#，无 Web 依赖）
+│   ├── Engines/
+│   │   ├── IntradayStrengthEngine.cs   # 分时主动资金强度分析
+│   │   ├── BuySignalDetector.cs        # 买入信号检测
+│   │   ├── RiskScoreEngine.cs          # 风险评分
+│   │   ├── DecisionEngine.cs           # 综合决策
+│   │   ├── DragonScreener.cs           # 龙头筛选
+│   │   ├── Backtester.cs               # 策略回测
+│   │   └── ...
+│   └── Models/
+│       ├── StockBar.cs                 # 日线数据
+│       ├── MinuteBar.cs                # 分时数据
+│       └── ...
+├── StockAnalysis.Web/           # ASP.NET Core 8 Web 应用
+│   ├── Controllers/             # Home / Stock / Screener / Opportunity / Portfolio / Backtest / Ai
+│   ├── Services/
+│   │   ├── AkShareDataService.cs       # AKShare HTTP 数据服务
+│   │   └── ...
+│   └── Views/
+├── Data/SystemStocks/           # 通达信导出 CSV（本地历史数据）
+├── akshare_server.py            # Python Flask 数据服务（端口 5100）
+└── 启动服务.bat                  # 一键启动
+```
+
 ## 核心功能
 
 | 功能 | 说明 |
