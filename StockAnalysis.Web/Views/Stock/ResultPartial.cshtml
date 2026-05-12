@@ -370,7 +370,7 @@ else
                     var gradeLabel = s.AttackGrade switch {
                         AttackGrade.S => "S 主升抢筹",
                         AttackGrade.A => s.IntradayPatternType == IntradayPattern.StepwiseUp ? "A 阶梯推升" : "A 强势承接",
-                        AttackGrade.B => "B 修复震荡",
+                        AttackGrade.B => s.IntradayPatternType == IntradayPattern.TrendShock ? "B+ 趋势震荡偏强" : "B 修复震荡",
                         _             => "C 尾盘诱多"
                     };
                     <div class="l3-block" style="grid-column: 1 / -1; background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
@@ -411,9 +411,82 @@ else
                                 <span style="color:#ef4444;font-size:16px;font-weight:700;letter-spacing:1px">⚠ 危险：存在尾盘修复/诱多风险，不建议追高</span>
                             </div>
                         }
+                        @* 短弱长强桥接说明 *@
+                        @if (s.IntradayStrengthScore < 40 && !s.IntradayDangerZone && s.MainForceBehavior != null
+                             && s.MainForceBehavior.Stage is MarketStage.WashoutDip or MarketStage.TrendRelay
+                                                          or MarketStage.LaunchTest or MarketStage.MainUpAccel)
+                        {
+                            <div style="margin-top:10px;padding:8px 12px;background:#1e2a1e;border-left:3px solid #4ade80;border-radius:3px">
+                                <span style="color:#86efac;font-size:12px;font-weight:600">短弱长强</span>
+                                <span style="color:#9CA3AF;font-size:12px;margin-left:8px">当日分时偏弱属正常波动，日K趋势结构未破坏，两者不矛盾。</span>
+                            </div>
+                        }
                     </div>
                 }
 
+
+                @* 主力行为识别 *@
+                @if (s.MainForceBehavior != null)
+                {
+                    var mf = s.MainForceBehavior;
+                    string ProbColor(int v) => v >= 60 ? "#10B981" : v >= 35 ? "#F59E0B" : "#9CA3AF";
+                    string DistColor(int v)  => v >= 50 ? "#EF4444" : v >= 30 ? "#F59E0B" : "#9CA3AF";
+                    string StageLabel(MarketStage st) => st switch {
+                        MarketStage.Accumulation  => "底部吸筹期",
+                        MarketStage.LaunchTest    => "启动试盘期",
+                        MarketStage.WashoutDip    => "分歧洗筹期",
+                        MarketStage.TrendRelay    => "趋势中继期",
+                        MarketStage.MainUpAccel   => "主升加速期",
+                        MarketStage.TopDistribute => "高位派发期",
+                        MarketStage.Exhaustion    => "退潮衰竭期",
+                        _ => ""
+                    };
+                    string StageColor(MarketStage st) => st switch {
+                        MarketStage.MainUpAccel   => "#10B981",
+                        MarketStage.TrendRelay or MarketStage.WashoutDip or MarketStage.LaunchTest => "#60A5FA",
+                        MarketStage.TopDistribute or MarketStage.Exhaustion => "#EF4444",
+                        _ => "#9CA3AF"
+                    };
+                    <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <div class="l3-title" style="color:#A78BFA">主力行为识别</div>
+                            <span style="padding:2px 10px;border-radius:3px;font-size:13px;font-weight:700;background:rgba(255,255,255,.07);color:@StageColor(mf.Stage)">@StageLabel(mf.Stage)</span>
+                        </div>
+                        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+                            @foreach (var (label, val, color) in new[]{
+                                ("洗盘概率",    mf.WashProbability,         ProbColor(mf.WashProbability)),
+                                ("出货概率",    mf.DistributionProbability, DistColor(mf.DistributionProbability)),
+                                ("主升预备",    mf.BreakoutProbability,     ProbColor(mf.BreakoutProbability)),
+                                ("趋势健康度",  mf.TrendHealthScore,        ProbColor(mf.TrendHealthScore)),
+                                ("控盘强度",    mf.ControlStrength,         ProbColor(mf.ControlStrength)),
+                                ("筹码锁定度",  mf.LockupScore,             ProbColor(mf.LockupScore))
+                            })
+                            {
+                                <div style="min-width:80px">
+                                    <div style="color:#9CA3AF;font-size:11px">@label</div>
+                                    <div style="font-size:20px;font-weight:700;color:@color">@val</div>
+                                    <div style="background:#111827;border-radius:3px;height:4px;margin-top:4px;overflow:hidden">
+                                        <div style="width:@(val)%;height:100%;background:@color"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        @if (mf.BehaviorTags.Any())
+                        {
+                            <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+                                @foreach (var tag in mf.BehaviorTags)
+                                {
+                                    var tagColor = tag.Contains("出货") || tag.Contains("破位") || tag.Contains("滞涨") || tag.Contains("长阴")
+                                        ? "#450a0a;color:#f87171" : "rgba(167,139,250,.15);color:#A78BFA";
+                                    <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:@tagColor">@tag</span>
+                                }
+                            </div>
+                        }
+                        <div style="margin-top:10px;color:#D1D5DB;font-size:13px;line-height:1.7;background:#111827;padding:10px;border-radius:4px">
+                            @mf.Analysis
+                        </div>
+                    </div>
+                }
 
                 @if (item.Finance != null && item.Finance.Periods.Length > 0)
                 {

@@ -20,20 +20,22 @@ public class IntradayStrengthEngine
 
     /// <summary>Legacy 兼容（无分时数据，使用日线近似）</summary>
     public IntradayStrengthResult Analyze(List<StockBar> bars, int index)
-        => Analyze(bars, index, null);
+        => Analyze(bars, index, null, StockStyle.TrendInstitutional);
 
     /// <summary>主入口：有分时数据时用真实逐分钟统计，否则返回中性结果</summary>
-    public IntradayStrengthResult Analyze(List<StockBar> bars, int index, List<MinuteBar>? minuteBars)
+    public IntradayStrengthResult Analyze(List<StockBar> bars, int index, List<MinuteBar>? minuteBars,
+        StockStyle style = StockStyle.TrendInstitutional)
     {
         if (minuteBars != null)
-            return minuteBars.Count >= 30 ? AnalyzeFromMinute(minuteBars) : Neutral();
+            return minuteBars.Count >= 30 ? AnalyzeFromMinute(minuteBars, style) : Neutral();
 
         return AnalyzeLegacy(bars, index);
     }
 
     // ── 真实分时分析 ──────────────────────────────────────────────────────
 
-    private static IntradayStrengthResult AnalyzeFromMinute(List<MinuteBar> bars)
+    private static IntradayStrengthResult AnalyzeFromMinute(List<MinuteBar> bars,
+        StockStyle style = StockStyle.TrendInstitutional)
     {
         int n = bars.Count;
 
@@ -111,7 +113,9 @@ public class IntradayStrengthEngine
         decimal tailClosePos = fullRange > 0 ? (tailClose - sessionLow) / fullRange : 0.5m;
 
         bool tailRally  = tailOpen > 0 && (tailClose - tailOpen) / tailOpen > 0.015m;
-        bool tailTrap   = tailRally && structureWeak;
+        // 真正诱多：全天弱势 + 尾盘急拉幅度大 + 拉升前长时间压在均线下
+        bool tailTrap   = tailRally && structureWeak && aboveRatio < 0.40m
+                          && (tailClose - tailOpen) / tailOpen > 0.025m;
         bool highShock  = tailClosePos > 0.75m && tailOpen > 0
                           && Math.Abs(tailClose - tailOpen) / tailOpen < 0.005m;
         bool tailNoJump = tailOpen > 0 && (tailClose - tailOpen) / tailOpen > -0.005m; // 尾盘未跳水
@@ -201,8 +205,8 @@ public class IntradayStrengthEngine
                           && tailClosePos > 0.6m;                     // 最终收回高位
         bool isHealthyWashout = hasWashout && !isStepwiseUp && !tailTrap;
 
-        // 10. 危险覆盖
-        bool isDangerZone = tailTrap || structureWeak;
+        // 10. 危险覆盖：只有真正诱多才触发，结构偏弱不等于危险
+        bool isDangerZone = tailTrap || (structureWeak && aboveRatio < 0.35m);
 
         // 11. 评分
         int score = 0;
@@ -221,9 +225,29 @@ public class IntradayStrengthEngine
         else if (structureWeak) score = Math.Min(score, 60);
         score = Math.Max(0, Math.Min(100, score));
 
+        // 票型适配：趋势机构型/中军容量型用宽松标准，不要求暴力拉升
+        // 趋势票正常表现：台阶震荡、回踩均线、尾盘整理，不应被判为弱
+        if (!isDangerZone && style is StockStyle.TrendInstitutional or StockStyle.LargeCapVolume)
+        {
+            // 核心条件：长时间运行均线上方 + 尾盘未跳水 + 重心抬高 → 趋势偏强，55~70
+            if (aboveRatio >= 0.60m && tailNoJump && risingStructure && !tailFallBack)
+                score = Math.Max(score, 62);
+            else if (aboveRatio >= 0.55m && tailNoJump && risingStructure)
+                score = Math.Max(score, 55);
+            // 结构中性但尾盘稳住 → 至少45，不能判弱
+            else if (structureNeutral && tailNoJump && !tailFallBack)
+                score = Math.Max(score, 48);
+            else if (structureNeutral && tailNoJump)
+                score = Math.Max(score, 42);
+        }
+
         // 12. 形态（优先级：TailTrap > StepwiseUp > MainUpTrend > HealthyWashout > WeakRecovery）
         // 修复震荡：上午冲高失败后下午修复
         bool isRepairPattern = morningHighFailed || (morningRatio > afternoonRatio + 0.1m && !structureStrong);
+
+        // 趋势震荡偏强：结构中性但重心抬高，不是诱多
+        bool isTrendShock = structureNeutral && risingStructure && !tailTrap
+                         && tailClosePos > 0.5m && !morningHighFailed;
 
         IntradayPattern pattern;
         if (tailTrap)
@@ -231,20 +255,23 @@ public class IntradayStrengthEngine
         else if (isStepwiseUp)
             pattern = IntradayPattern.StepwiseUp;
         else if (isRepairPattern)
-            pattern = IntradayPattern.WeakRecovery;  // 修复震荡归入 WeakRecovery
+            pattern = IntradayPattern.WeakRecovery;
         else if (structureStrong && avgRising && risingStructure)
             pattern = IntradayPattern.MainUpTrend;
         else if (isHealthyWashout)
             pattern = IntradayPattern.HealthyWashout;
+        else if (isTrendShock)
+            pattern = IntradayPattern.TrendShock;
         else
             pattern = IntradayPattern.WeakRecovery;
 
         // 13. 等级
         AttackGrade grade = (tailTrap || isDangerZone) ? AttackGrade.C
-            : morningHighFailed ? AttackGrade.B   // 上午冲高失败最高B
+            : morningHighFailed ? AttackGrade.B
             : pattern == IntradayPattern.MainUpTrend && tailClosePos > 0.8m ? AttackGrade.S
             : pattern == IntradayPattern.MainUpTrend || pattern == IntradayPattern.StepwiseUp ? AttackGrade.A
-            : pattern == IntradayPattern.HealthyWashout ? AttackGrade.B
+            : pattern == IntradayPattern.HealthyWashout || pattern == IntradayPattern.TrendShock ? AttackGrade.B
+            : structureNeutral ? AttackGrade.B   // 中性结构最低给B，不能是C
             : AttackGrade.C;
 
         AttackWill will = score >= 65 ? AttackWill.Strong : score >= 40 ? AttackWill.Medium : AttackWill.Weak;
@@ -255,7 +282,10 @@ public class IntradayStrengthEngine
             IntradayPattern.MainUpTrend    => $"主升趋势，{pct}时间在均线上方，资金主动进攻",
             IntradayPattern.StepwiseUp     => $"阶梯式推升，下午{'强' + (afternoonStronger ? "于上午" : "势延续")}，控节奏推升",
             IntradayPattern.HealthyWashout => $"健康洗盘，{pct}时间在均线上方，回踩后快速修复",
-            IntradayPattern.WeakRecovery   => $"弱势结构，仅{pct}时间在均线上方",
+            IntradayPattern.TrendShock     => $"趋势震荡偏强，{pct}时间在均线上方，重心抬高，短线分歧但趋势未坏",
+            IntradayPattern.WeakRecovery   => structureNeutral
+                ? $"震荡整理，{pct}时间在均线上方，短线分歧但结构中性"
+                : $"弱势结构，仅{pct}时间在均线上方",
             IntradayPattern.TailTrap       => $"尾盘急拉诱多，全天弱势（{pct}在均线上方）",
             _                              => ""
         };

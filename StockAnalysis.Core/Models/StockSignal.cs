@@ -1,11 +1,47 @@
 namespace StockAnalysis.Core.Models;
 
+/// <summary>票型风格</summary>
+public enum StockStyle
+{
+    TrendInstitutional, // 趋势机构型：台阶上涨、MA向上、缓慢放量
+    EmotionSpeculative, // 妖股情绪型：高频涨停、高换手、情绪爆发
+    LargeCapVolume,     // 中军容量型：大市值、震荡推进、机构承接
+    BottomLaunch,       // 低位试盘型：底部放量异动、首次突破
+    DistributionDecline // 出货衰退型：放量滞涨、跌破平台、连续阴跌
+}
+
+
+/// <summary>市场阶段（主力行为视角）</summary>
+public enum MarketStage
+{
+    Accumulation,   // 底部吸筹期
+    LaunchTest,     // 启动试盘期
+    WashoutDip,     // 分歧洗筹期
+    TrendRelay,     // 趋势中继期
+    MainUpAccel,    // 主升加速期
+    TopDistribute,  // 高位派发期
+    Exhaustion      // 退潮衰竭期
+}
+
+public record MainForceBehaviorResult(
+    int WashProbability,
+    int DistributionProbability,
+    int BreakoutProbability,
+    int TrendHealthScore,
+    int ControlStrength,
+    int LockupScore,
+    List<string> BehaviorTags,
+    string Analysis,
+    MarketStage Stage
+);
+
 /// <summary>分时形态</summary>
 public enum IntradayPattern
 {
     MainUpTrend,    // 主升趋势
     StepwiseUp,     // 阶梯式推升（控节奏推升）
     HealthyWashout, // 健康洗盘
+    TrendShock,     // 趋势震荡偏强（短线分歧但趋势未坏）
     WeakRecovery,   // 弱势修复
     TailTrap,       // 尾盘诱多
     SmartExit       // 主力撤退
@@ -156,4 +192,8 @@ public class StockSignal
     public AttackGrade AttackGrade { get; set; }
     /// <summary>危险覆盖：弱势结构触发，隐藏仓位/涨停潜力</summary>
     public bool IntradayDangerZone { get; set; }
+    /// <summary>票型风格</summary>
+    public StockStyle StockStyle { get; set; }
+    /// <summary>主力行为识别结果</summary>
+    public MainForceBehaviorResult? MainForceBehavior { get; set; }
 }

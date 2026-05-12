@@ -22,11 +22,16 @@ _stock_list = None
 _hk_stock_list = None
 
 def _fix_gbk(s):
-    """修复 akshare 深交所接口返回的 GBK 乱码名称"""
+    """修复 akshare 深交所接口返回的 GBK 乱码名称（仅当原始字符串不含中文时才尝试修复）"""
+    if any('\u4e00' <= c <= '\u9fff' for c in s):
+        return s  # 已经是正确中文，不需要修复
     try:
-        return s.encode('raw_unicode_escape').decode('gbk')
+        fixed = s.encode('raw_unicode_escape').decode('gbk')
+        if any('\u4e00' <= c <= '\u9fff' for c in fixed):
+            return fixed
     except Exception:
-        return s
+        pass
+    return s
 
 def get_stock_list():
     global _stock_list
@@ -78,14 +83,17 @@ def get_stock(code):
 def normalize(s):
     return ''.join(chr(ord(c) - 0xFEE0) if 0xFF01 <= ord(c) <= 0xFF5E else c for c in s)
 
-@app.route("/search/<name>")
+@app.route("/search/<path:name>")
 def search_stock(name):
     try:
-        # 兼容浏览器直接发送未编码中文 URL 时 Werkzeug 用 latin-1 错误解码的情况
-        try:
-            name = name.encode('latin-1').decode('utf-8')
-        except (UnicodeDecodeError, UnicodeEncodeError):
-            pass
+        # 仅当原始字符串不含中文（说明是 latin-1 误解码的乱码）时才尝试修复
+        if not any('\u4e00' <= c <= '\u9fff' for c in name):
+            try:
+                fixed = name.encode('latin-1').decode('utf-8')
+                if any('\u4e00' <= c <= '\u9fff' for c in fixed):
+                    name = fixed
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                pass
         stock_list = get_stock_list()
         name_norm = normalize(name)
         for k, v in stock_list.items():

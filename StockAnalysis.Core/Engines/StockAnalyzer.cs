@@ -15,6 +15,8 @@ public class StockAnalyzer
     private readonly CycleDetector _cycle = new();
     private readonly SmartMoneyEngine _smartMoney = new();
     private readonly IntradayStrengthEngine _intraday = new();
+    private readonly MainForceBehaviorEngine _mainForce = new();
+    private readonly StockStyleDetector _styleDetector = new();
 
     public string? LastExcludeReason { get; private set; }
 
@@ -46,15 +48,25 @@ public class StockAnalyzer
             marketWeak = mInd != null && mInd.MA5 < mInd.MA20;
         }
 
-        // 3. 量价 → 周期 → 信号 → 风险 → 主力行为
+        // 3. 量价 → 周期 → 信号 → 票型识别 → 风险 → 主力行为
         var vol = _volume.Analyze(bars, last);
         var cycle = _cycle.Detect(bars, last, vol);
         var (signalType, signalReason) = _signal.Detect(bars, last, vol, cycle);
-        var riskResult = _risk.Score(bars, last, vol, marketWeak);
+        var smartMoney = _smartMoney.Analyze(bars, last, vol);
+        // 先计算14天涨停次数，再识别票型，再用票型调整分时/风险评分
+        int limitUpCount14Pre = 0;
+        int checkDaysPre = Math.Min(14, last);
+        for (int i = last - checkDaysPre + 1; i <= last; i++)
+            if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
+                limitUpCount14Pre++;
+        var stockStyle = _styleDetector.Detect(bars, last, limitUpCount14Pre);
+        var riskResult = _risk.Score(bars, last, vol, marketWeak, stockStyle);
         var riskScore = riskResult.Total;
         var riskReasons = riskResult.Reasons;
-        var smartMoney = _smartMoney.Analyze(bars, last, vol);
-        var intraday = _intraday.Analyze(bars, last, minuteBars);
+        var intraday = _intraday.Analyze(bars, last, minuteBars, stockStyle);
+        var mainForce = _mainForce.Analyze(bars, last,
+            intradayWeak: intraday.Score < 40,
+            intradayDanger: intraday.IsDangerZone);
 
         // 4. 趋势
         var trend = ind != null && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20 ? Trend.Up
@@ -158,6 +170,14 @@ public class StockAnalyzer
         if (vol.State == VolumeState.AggressiveBuy) limitUpScore += 20;
         else if (vol.State == VolumeState.ShrinkConsolidate) limitUpScore += 10;
         if (limitUpCount > 0) limitUpScore += Math.Min(limitUpCount * 5, 15);  // 连板动能
+        // 趋势惯性加成：趋势机构型/中军容量型在主升/趋势中继阶段，即使不涨停也有冲高预期
+        if (stockStyle is StockStyle.TrendInstitutional or StockStyle.LargeCapVolume)
+        {
+            if (mainForce.Stage is MarketStage.MainUpAccel)
+                limitUpScore += 20;  // 主升加速期：趋势惯性最强
+            else if (mainForce.Stage is MarketStage.TrendRelay or MarketStage.WashoutDip)
+                limitUpScore += 12;  // 趋势中继/洗筹期：有持续推进预期
+        }
         if (intraday.Pattern == IntradayPattern.TailTrap || intraday.Pattern == IntradayPattern.SmartExit)
             limitUpScore = (int)(limitUpScore * 0.3);  // 诱多/撤退大幅折扣
         if (riskScore >= 66) limitUpScore = (int)(limitUpScore * 0.4);
@@ -200,7 +220,8 @@ public class StockAnalyzer
             IntradayPatternType = intraday.Pattern,
             NextDayLimitUpScore = intraday.IsDangerZone ? 0 : limitUpScore,
             AttackGrade = intraday.Grade,
-            IntradayDangerZone = intraday.IsDangerZone
+            IntradayDangerZone = intraday.IsDangerZone,
+            MainForceBehavior = mainForce
         }];
     }
 
