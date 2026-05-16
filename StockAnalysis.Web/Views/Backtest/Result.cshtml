@@ -99,6 +99,27 @@
         </div>
     </div>
 
+    <!-- 主升平台 SecondWaveProbability 分段统计 -->
+    @if (s.MainUpPlatformCount > 0 && s.SecondWaveTiers != null)
+    {
+        <div class="bt-panel">
+            <div class="bt-title">主升平台 · 二波概率分段统计（共 @s.MainUpPlatformCount 次信号，胜率 @s.MainUpPlatformWinRate.ToString("F1")%）</div>
+            <div class="sig-row">
+                @foreach (var t in s.SecondWaveTiers.Where(t => t.Count > 0))
+                {
+                    <div class="sig-card" style="border-left-color:@(t.WinRate>60?"#ff4d4f":t.WinRate<40?"#00c853":"#ffc107")">
+                        <div class="sig-name">二波概率 @t.Label</div>
+                        <div class="sig-stats">
+                            <span>数量 <b>@t.Count</b></span>
+                            <span>胜率 <b class="@(t.WinRate>60?"bt-up":t.WinRate<40?"bt-down":"")">@t.WinRate.ToString("F0")%</b></span>
+                            <span>5日均收益 <b class="@(t.AvgReturn5D>0?"bt-up":"bt-down")">@t.AvgReturn5D.ToString("F2")%</b></span>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
     <!-- 信号类型对比 -->
     @if (s.BySignalType.Any())
     {

@@ -4,6 +4,8 @@ obj/
 *.user
 appsettings.Development.json
 Data/SystemStocks/
+Data/*.json
+Dataserver.log
 __pycache__/
 *.pyc
 signal_log.json

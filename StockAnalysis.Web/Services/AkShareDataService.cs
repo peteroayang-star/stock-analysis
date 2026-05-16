@@ -131,6 +131,19 @@ public class AkShareDataService
         catch { return null; }
     }
 
+    /// <summary>获取总市值（亿元），失败返回 null</summary>
+    public async Task<decimal?> TryGetMarketCapAsync(string code)
+    {
+        try
+        {
+            var json = await _http.GetStringAsync($"http://127.0.0.1:5100/marketcap/{code}");
+            var doc = JsonDocument.Parse(json).RootElement;
+            var mv = doc.GetProperty("total_mv").GetDecimal();
+            return mv / 1_0000_0000m; // 元 → 亿元
+        }
+        catch { return null; }
+    }
+
     public async Task<List<string>> GetSectorsAsync()
     {
         try
@@ -147,6 +160,21 @@ public class AkShareDataService
         try
         {
             var json = await _http.GetStringAsync($"http://127.0.0.1:5100/sector/{Uri.EscapeDataString(sector)}");
+            var doc = JsonDocument.Parse(json).RootElement;
+            return doc.GetProperty("stocks").EnumerateArray()
+                .Select(x => (x.GetProperty("code").GetString()!, x.GetProperty("name").GetString()!))
+                .ToList();
+        }
+        catch { return []; }
+    }
+
+    public Task<string> GetRawAsync(string url) => _http.GetStringAsync(url);
+
+    public async Task<List<(string Code, string Name)>> GetAllStocksAsync()
+    {
+        try
+        {
+            var json = await _http.GetStringAsync("http://127.0.0.1:5100/allstocks");
             var doc = JsonDocument.Parse(json).RootElement;
             return doc.GetProperty("stocks").EnumerateArray()
                 .Select(x => (x.GetProperty("code").GetString()!, x.GetProperty("name").GetString()!))

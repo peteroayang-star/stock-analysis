@@ -17,7 +17,10 @@ public record BacktestResult(
     string Code, string Name, DateTime SignalDate,
     BuySignalType SignalType, decimal EntryPrice,
     decimal Return1D, decimal Return3D, decimal Return5D, decimal Return10D,
-    decimal MaxDrawdown
+    decimal MaxDrawdown,
+    bool IsMainUpPlatform = false,
+    decimal SecondWaveProbability = 0,
+    decimal ResonanceScore = 0
 );
 
 /// <summary>按信号类型分组统计</summary>
@@ -25,6 +28,9 @@ public record SignalTypeStat(
     BuySignalType SignalType, int Count, decimal WinRate,
     decimal AvgReturn5D, decimal AvgReturn10D, decimal ProfitLossRatio, decimal AvgMaxDrawdown
 );
+
+/// <summary>ResonanceScore 分段统计</summary>
+public record ResonanceTierStat(string Label, int Count, decimal WinRate, decimal AvgReturn5D, decimal AvgReturn10D, decimal AvgMaxDrawdown);
 
 /// <summary>回测汇总统计</summary>
 public record BacktestSummary(
@@ -34,8 +40,15 @@ public record BacktestSummary(
     decimal AvgMaxDrawdown, decimal MedianMaxDrawdown,
     int MaxConsecLosses, decimal Expectancy,
     string Grade,
-    List<SignalTypeStat> BySignalType
+    List<SignalTypeStat> BySignalType,
+    int MainUpPlatformCount = 0,
+    decimal MainUpPlatformWinRate = 0,
+    List<SecondWaveTierStat>? SecondWaveTiers = null,
+    List<ResonanceTierStat>? ResonanceTiers = null
 );
+
+/// <summary>SecondWaveProbability 分段统计</summary>
+public record SecondWaveTierStat(string Label, int Count, decimal WinRate, decimal AvgReturn5D);
 
 /// <summary>回测引擎，遍历历史 K 线检测信号并统计收益</summary>
 public class Backtester
@@ -43,6 +56,8 @@ public class Backtester
     private readonly BuySignalDetector _detector;
     private readonly VolumeEngine _volume = new();
     private readonly CycleDetector _cycle = new();
+    private readonly MainUpPlatformEngine _platform = new();
+    private readonly IndicatorCalculator _calc = new();
 
     public Backtester(SignalConfig cfg) => _detector = new BuySignalDetector(cfg);
 
@@ -56,13 +71,17 @@ public class Backtester
             var (signalType, _) = _detector.Detect(bars, i, vol, cycle);
             if (signalType == BuySignalType.None) continue;
 
+            var ind = _calc.Calculate(bars, i);
+            var plat = _platform.Analyze(bars, i, ind, vol, cycle, 0);
+
             var entry = bars[i].Close;
             decimal ret(int n) => (bars[i + n].Close - entry) / entry * 100;
             var maxDD = (entry - bars.Skip(i + 1).Take(10).Min(b => b.Low)) / entry * 100;
 
             results.Add(new BacktestResult(
                 bars[i].Code, bars[i].Name, bars[i].Date, signalType, entry,
-                ret(1), ret(3), ret(5), ret(10), maxDD));
+                ret(1), ret(3), ret(5), ret(10), maxDD,
+                plat.IsMainUpPlatform, plat.SecondWaveProbability));
         }
         return results;
     }
@@ -116,12 +135,40 @@ public class Backtester
                 g.Average(r => r.MaxDrawdown));
         }).OrderByDescending(s => s.AvgReturn5D).ToList();
 
+        // SecondWaveProbability 分段统计
+        var tiers = new[] {
+            ("<50",  (decimal)0,  50m),
+            ("50~65", 50m, 65m),
+            ("65~80", 65m, 80m),
+            ("80+",   80m, 101m)
+        }.Select(t => {
+            var g = results.Where(r => r.IsMainUpPlatform && r.SecondWaveProbability >= t.Item2 && r.SecondWaveProbability < t.Item3).ToList();
+            if (g.Count == 0) return new SecondWaveTierStat(t.Item1, 0, 0, 0);
+            decimal wr = (decimal)g.Count(r => r.Return5D > 0) / g.Count * 100;
+            return new SecondWaveTierStat(t.Item1, g.Count, wr, g.Average(r => r.Return5D));
+        }).ToList();
+
+        // ResonanceScore 分段统计
+        var resonanceTiers = new[] {
+            ("<40",  0m, 40m), ("40~60", 40m, 60m), ("60~75", 60m, 75m), ("75+", 75m, 101m)
+        }.Select(t => {
+            var g = results.Where(r => r.ResonanceScore >= t.Item2 && r.ResonanceScore < t.Item3).ToList();
+            if (g.Count == 0) return new ResonanceTierStat(t.Item1, 0, 0, 0, 0, 0);
+            decimal wr = (decimal)g.Count(r => r.Return5D > 0) / g.Count * 100;
+            return new ResonanceTierStat(t.Item1, g.Count, wr, g.Average(r => r.Return5D), g.Average(r => r.Return10D), g.Average(r => r.MaxDrawdown));
+        }).ToList();
+
         return new BacktestSummary(
             results.Count, winRate,
             results.Average(r => r.Return5D), avgWin, avgLoss, plr,
             wins.Count  > 0 ? wins.Max(r => r.Return5D)               : 0,
             losses.Count > 0 ? Math.Abs(losses.Min(r => r.Return5D))  : 0,
             results.Average(r => r.MaxDrawdown), medianDD,
-            maxConsec, expectancy, grade, byType);
+            maxConsec, expectancy, grade, byType,
+            results.Count(r => r.IsMainUpPlatform),
+            results.Count(r => r.IsMainUpPlatform) > 0
+                ? (decimal)results.Count(r => r.IsMainUpPlatform && r.Return5D > 0) / results.Count(r => r.IsMainUpPlatform) * 100
+                : 0,
+            tiers, resonanceTiers);
     }
 }

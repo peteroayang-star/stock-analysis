@@ -17,6 +17,11 @@ public class StockAnalyzer
     private readonly IntradayStrengthEngine _intraday = new();
     private readonly MainForceBehaviorEngine _mainForce = new();
     private readonly StockStyleDetector _styleDetector = new();
+    private readonly MainUpPlatformEngine _mainUpPlatform = new();
+    private readonly DragonTigerBehaviorEngine _dragonTiger = new();
+    private readonly SectorEmotionEngine _sectorEmotion = new();
+    private readonly ChipControlEngine _chipControl = new();
+    private readonly SectorResonanceEngine _sectorResonance = new();
 
     public string? LastExcludeReason { get; private set; }
 
@@ -27,14 +32,15 @@ public class StockAnalyzer
         _filter = new StockFilter(cfg.Filter);
     }
 
-    public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate, List<StockBar>? marketBars = null, List<MinuteBar>? minuteBars = null)
+    public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate, List<StockBar>? marketBars = null, List<MinuteBar>? minuteBars = null,
+        List<DragonTigerRecord>? dragonTigerRecords = null, List<List<StockBar>>? sectorStocks = null, string? sectorName = null, bool skipAmountFilter = false)
     {
         int last = bars.Count - 1;
         if (last < 28) return [];
 
         var bar = bars[last];
         LastExcludeReason = null;
-        var excludeReason = _filter.ShouldExclude(bar.Code, bar.Name, bars);
+        var excludeReason = _filter.ShouldExclude(bar.Code, bar.Name, bars, skipAmountFilter);
         if (excludeReason != null) { LastExcludeReason = excludeReason; return []; }
 
         // 1. 指标
@@ -68,6 +74,13 @@ public class StockAnalyzer
             intradayWeak: intraday.Score < 40,
             intradayDanger: intraday.IsDangerZone);
 
+        // 新引擎（在风险评分后，决策前）
+        var platform    = _mainUpPlatform.Analyze(bars, last, ind, vol, cycle, riskScore);
+        var dragonTiger = _dragonTiger.Analyze(dragonTigerRecords);
+        var sectorEmo   = _sectorEmotion.Analyze(sectorName, sectorStocks);
+        var chipControl = _chipControl.Analyze(bars, last, ind, vol);
+        var sectorRes   = _sectorResonance.Analyze(bars, sectorStocks, minuteBars);
+
         // 4. 趋势
         var trend = ind != null && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20 ? Trend.Up
                   : ind != null && ind.MA5 < ind.MA10 && ind.MA10 < ind.MA20 ? Trend.Down
@@ -89,7 +102,8 @@ public class StockAnalyzer
         else
             (dec, forceReason) = _decision.DecideEntry(signalType, riskScore, trend,
                 ind != null && bar.Close >= ind.MA10 * 1.02m,
-                cycle, vol, belowMA20, macdDead, belowStopLoss);
+                cycle, vol, belowMA20, macdDead, belowStopLoss,
+                platform, dragonTiger, sectorEmo, chipControl, sectorRes);
 
         // 7. 稳定性过滤
         if (mode == TradingMode.Candidate)
@@ -221,7 +235,12 @@ public class StockAnalyzer
             NextDayLimitUpScore = intraday.IsDangerZone ? 0 : limitUpScore,
             AttackGrade = intraday.Grade,
             IntradayDangerZone = intraday.IsDangerZone,
-            MainForceBehavior = mainForce
+            MainForceBehavior = mainForce,
+            MainUpPlatform = platform,
+            DragonTiger    = dragonTiger,
+            SectorEmotion  = sectorEmo,
+            ChipControl    = chipControl,
+            SectorResonance = sectorRes,
         }];
     }
 

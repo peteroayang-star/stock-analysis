@@ -9,6 +9,18 @@ import sys, io, os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
+# 清除代理设置，避免 akshare 请求被代理拦截
+for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+    os.environ.pop(_k, None)
+
+import requests
+# 禁止 requests 读取系统代理（Windows WinInet 代理）
+_orig_session_init = requests.Session.__init__
+def _no_proxy_session_init(self, *args, **kwargs):
+    _orig_session_init(self, *args, **kwargs)
+    self.trust_env = False
+requests.Session.__init__ = _no_proxy_session_init
+
 
 from flask import Flask, Response, jsonify
 import akshare as ak
@@ -60,6 +72,26 @@ def get_hk_stock_list():
 def is_hk_code(code):
     return len(code) == 5 and code.isdigit()
 
+def _fetch_kline_tencent(code):
+    """用腾讯 K 线接口获取前复权日 K（约320条），返回 DataFrame"""
+    import re as _re, json as _json
+    prefix = "sh" if code.startswith("6") else "sz"
+    symbol = f"{prefix}{code}"
+    url = (f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+           f"?_var=kline_dayqfq&param={symbol},day,,,640,qfq")
+    s = requests.Session(); s.trust_env = False
+    raw = s.get(url, timeout=8).content.decode("utf-8", errors="replace")
+    m = _re.match(r'\w+=(.+)', raw.strip())
+    if not m:
+        raise ValueError("parse error")
+    obj = _json.loads(m.group(1))
+    bars = obj["data"][symbol].get("qfqday") or obj["data"][symbol].get("day")
+    rows = []
+    for b in bars:
+        rows.append({"日期": b[0], "开盘": float(b[1]), "最高": float(b[3]),
+                     "最低": float(b[4]), "收盘": float(b[2]), "成交量": int(float(b[5])), "成交额": 0})
+    return pd.DataFrame(rows)
+
 @app.route("/stock/<code>")
 def get_stock(code):
     try:
@@ -71,11 +103,7 @@ def get_stock(code):
                 if c in df.columns:
                     df[c] = df[c].fillna(0).astype("int64")
             return Response(df.to_csv(index=False), mimetype="text/csv")
-        prefix = "sh" if code.startswith("6") else "sz"
-        df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
-        df = df.rename(columns={"date": "日期", "open": "开盘", "high": "最高", "low": "最低", "close": "收盘", "volume": "成交量", "amount": "成交额"})
-        df = df[["日期", "开盘", "最高", "最低", "收盘", "成交量", "成交额"]]
-        df["成交额"] = df["成交额"].fillna(0).astype("int64")
+        df = _fetch_kline_tencent(code)
         return Response(df.to_csv(index=False), mimetype="text/csv")
     except Exception as e:
         return {"error": str(e)}, 500
@@ -122,19 +150,23 @@ def search_stock(name):
 def get_realtime(code):
     try:
         prefix = "sh" if code.startswith("6") else "sz"
-        df = ak.stock_zh_a_spot()
-        row = df[df["code"] == f"{prefix}{code}"]
-        if row.empty:
+        raw = requests.get(f"https://qt.gtimg.cn/q={prefix}{code}", timeout=5).content
+        text = raw.decode("gbk", errors="replace")
+        import re
+        m = re.match(r'v_\w+="(.*)"', text.strip())
+        if not m:
             return {"error": "not found"}, 404
-        r = row.iloc[0]
+        f = m.group(1).split("~")
+        if len(f) < 39:
+            return {"error": "parse error"}, 500
+        pre_close = float(f[4]) if f[4] else 0
+        price = float(f[3]) if f[3] else 0
+        change_pct = round((price - pre_close) / pre_close * 100, 2) if pre_close else 0
         return jsonify({
-            "price": float(r["trade"]),
-            "open": float(r["open"]),
-            "high": float(r["high"]),
-            "low": float(r["low"]),
-            "volume": float(r["volume"]),
-            "amount": float(r["amount"]),
-            "change_pct": float(r["percent"])
+            "price": price, "open": float(f[5] or 0),
+            "high": float(f[33] or 0), "low": float(f[34] or 0),
+            "volume": float(f[6] or 0), "amount": float(f[37] or 0) * 10000,
+            "change_pct": change_pct
         })
     except Exception as e:
         return {"error": str(e)}, 500
@@ -142,10 +174,25 @@ def get_realtime(code):
 @app.route("/minute/<code>")
 def get_minute(code):
     try:
+        import re as _re, json as _json
         prefix = "sh" if code.startswith("6") else "sz"
-        symbol = f"{prefix}{code}" if not code.startswith(("sh", "sz")) else code
-        df = ak.stock_zh_a_minute(symbol=symbol, period="1", adjust="qfq")
-        df = df[["day", "open", "high", "low", "close", "volume"]]
+        symbol = f"{prefix}{code}"
+        s = requests.Session(); s.trust_env = False
+        url = f"http://web.ifzq.gtimg.cn/appstock/app/minute/query?_var=min_data_{symbol}&code={symbol}"
+        raw = s.get(url, timeout=8).content.decode("utf-8", errors="replace")
+        m = _re.match(r'\w+=(.+)', raw.strip())
+        if not m:
+            return {"error": "parse error"}, 500
+        obj = _json.loads(m.group(1))
+        bars = obj["data"][symbol]["data"]["data"]
+        rows = []
+        for b in bars:
+            parts = b.split()
+            if len(parts) >= 2:
+                rows.append({"day": parts[0], "open": float(parts[1]), "high": float(parts[1]),
+                             "low": float(parts[1]), "close": float(parts[1]),
+                             "volume": int(parts[2]) if len(parts) > 2 else 0})
+        df = pd.DataFrame(rows)
         return Response(df.to_csv(index=False), mimetype="text/csv")
     except Exception as e:
         return {"error": str(e)}, 500
@@ -183,11 +230,8 @@ def get_latest_quarter_date():
     today = date.today()
     quarters = [(3,31),(6,30),(9,30),(12,31)]
     for month, day in reversed(quarters):
-        if (today.month, today.day) > (month, day) or (today.month == month and today.day == day):
+        if (today.month, today.day) >= (month, day):
             return f"{today.year}{month:02d}{day:02d}"
-        if today.month <= month:
-            continue
-    # 上一年Q4
     return f"{today.year-1}1231"
 
 @app.route("/finance/<code>")
@@ -258,11 +302,87 @@ def get_finance(code):
     except Exception as e:
         return {"error": str(e)}, 500
 
+@app.route("/marketcap/<code>")
+def get_market_cap(code):
+    try:
+        prefix = "sh" if code.startswith("6") else "sz"
+        s = requests.Session(); s.trust_env = False
+        raw = s.get(f"https://qt.gtimg.cn/q={prefix}{code}", timeout=5).content
+        text = raw.decode("gbk", errors="replace")
+        import re
+        m = re.match(r'v_\w+="(.*)"', text.strip())
+        if not m:
+            return {"error": "not found"}, 404
+        f = m.group(1).split("~")
+        name = f[1] if len(f) > 1 else ""
+        circ_mv  = float(f[44]) * 1e8 if len(f) > 44 and f[44] else 0
+        total_mv = float(f[45]) * 1e8 if len(f) > 45 and f[45] else 0
+        return jsonify({"total_mv": total_mv, "circ_mv": circ_mv, "name": name})
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route("/allstocks")
+def get_all_stocks():
+    try:
+        stock_list = get_stock_list()
+        stocks = [{"code": v, "name": k} for k, v in stock_list.items()]
+        return jsonify({"stocks": stocks})
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route("/snapshot")
+def get_snapshot():
+    """用腾讯批量行情接口获取全市场快照，每批100只，并发请求"""
+    import concurrent.futures, re
+    from requests import Session
+
+    stock_list = get_stock_list()
+    # 只取沪深A股（6位数字，排除北交所8/4开头）
+    codes = [c for c in stock_list.values()
+             if len(c) == 6 and c.isdigit()
+             and not c.startswith(('8', '4'))]
+
+    def prefix(code):
+        return 'sh' if code.startswith('6') else 'sz'
+
+    def fetch_batch(batch):
+        symbols = ','.join(f"{prefix(c)}{c}" for c in batch)
+        try:
+            s = Session(); s.trust_env = False
+            raw = s.get(f'https://qt.gtimg.cn/q={symbols}', timeout=8).content
+            text = raw.decode('gbk', errors='replace')
+            results = []
+            for line in text.strip().split('\n'):
+                m = re.match(r'v_\w+="(.*)"', line)
+                if not m: continue
+                f = m.group(1).split('~')
+                if len(f) < 39 or not f[2]: continue
+                try:
+                    results.append({
+                        'code': f[2], 'name': f[1],
+                        'price': float(f[3]) if f[3] else 0,
+                        'change_pct': float(f[32]) if f[32] else 0,
+                        'amount': float(f[37]) * 10000 if f[37] else 0,
+                        'total_mv': 0,
+                        'turnover': float(f[38]) if f[38] else 0
+                    })
+                except: continue
+            return results
+        except: return []
+
+    batches = [codes[i:i+100] for i in range(0, len(codes), 100)]
+    all_stocks = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+        for result in ex.map(fetch_batch, batches):
+            all_stocks.extend(result)
+
+    return jsonify({"stocks": all_stocks, "source": "tencent"})
+
 @app.route("/sectors")
 def get_sectors():
     try:
-        df = ak.stock_board_concept_name_em()
-        names = df["板块名称"].tolist()
+        df = ak.stock_board_concept_name_ths()
+        names = df["name"].tolist()
         return jsonify({"sectors": names})
     except Exception as e:
         return {"error": str(e)}, 500
@@ -270,8 +390,6 @@ def get_sectors():
 @app.route("/sector/<name>")
 def get_sector_stocks(name):
     try:
-        import requests
-        # 用同花顺概念板块接口
         df = ak.stock_board_concept_cons_ths(symbol=name)
         stocks = df[["代码", "名称"]].rename(columns={"代码": "code", "名称": "name"}).to_dict(orient="records")
         return jsonify({"stocks": stocks})

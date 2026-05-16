@@ -17,7 +17,7 @@ public class StockFilter
     /// <param name="name">股票名称</param>
     /// <param name="bars">K 线列表</param>
     /// <returns>排除原因字符串；返回 null 表示通过过滤</returns>
-    public string? ShouldExclude(string code, string name, List<StockBar> bars)
+    public string? ShouldExclude(string code, string name, List<StockBar> bars, bool skipAmountFilter = false)
     {
         if (name.StartsWith("ST") || name.StartsWith("*ST")) return "ST股";
         if (code.StartsWith("688")) return "科创板";
@@ -25,9 +25,12 @@ public class StockFilter
         if (code.StartsWith("8") || code.StartsWith("4")) return "北交所";
         if (bars.Count < _cfg.MinListedDays) return $"上市不足{_cfg.MinListedDays}日";
 
-        var lastBar = bars[^1];
-        if (lastBar.Amount < (decimal)(_cfg.MinAmountMillionYuan * 1_000_000))
-            return $"成交额不足{_cfg.MinAmountMillionYuan}百万";
+        if (!skipAmountFilter)
+        {
+            var lastBar = bars[^1];
+            if (lastBar.Amount < (decimal)(_cfg.MinAmountMillionYuan * 1_000_000))
+                return $"成交额不足{_cfg.MinAmountMillionYuan}百万";
+        }
 
         return null;
     }

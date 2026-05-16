@@ -40,7 +40,7 @@ public class ScreenerController : Controller
     }
 
     [HttpPost]
-    public async Task<IActionResult> Index(string sector)
+    public async Task<IActionResult> Index(string sector, string mode = "dragon")
     {
         if (string.IsNullOrWhiteSpace(sector))
         { ModelState.AddModelError("", "请选择板块"); return View(); }
@@ -53,44 +53,90 @@ public class ScreenerController : Controller
         try { (marketBars, _) = await _marketData.TryGetBarsAsync("000001"); } catch { }
 
         var items = new List<ScreenerResultItem>();
-
-        // 并发控制：最多5个同时请求
         var semaphore = new SemaphoreSlim(5);
         var tasks = stocks.Select(async s =>
         {
             await semaphore.WaitAsync();
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
                 var (bars, _) = await _marketData.TryGetBarsAsync(s.Code);
                 if (bars == null || bars.Count < 30) return null;
 
-                var dragon = _dragon.Screen(bars);
-                if (dragon == null) return null;
-
-                var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
-                var signal = signals.FirstOrDefault();
-                if (signal == null || signal.RiskScore > 50) return null;
-
-                var rt = await _realTime.GetAsync(s.Code);
-                return new ScreenerResultItem
+                if (mode == "mainupplatform")
                 {
-                    Dragon = dragon,
-                    Signal = signal,
-                    Suggestion = _reasoner.Suggestion(signal.SignalType, signal.Decision, signal.Reasons),
-                    RealTime = rt
-                };
+                    // 前置过滤：非ST、非科创(688)、非创业(300/301)、非北交(8/4)
+                    if (s.Name.Contains("ST") || s.Name.Contains("退"))  return null;
+                    if (s.Code.StartsWith("688") || s.Code.StartsWith("300") ||
+                        s.Code.StartsWith("301") || s.Code.StartsWith("8") ||
+                        s.Code.StartsWith("4"))  return null;
+
+                    // 价格过滤：< 30 元
+                    var latestClose = bars[^1].Close;
+                    if (latestClose >= 30m) return null;
+
+                    // 市值过滤：< 300 亿（异步，失败则跳过市值检查）
+                    var mv = await _akShare.TryGetMarketCapAsync(s.Code);
+                    if (mv.HasValue && mv.Value >= 300m) return null;
+
+                    var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
+                    var signal = signals.FirstOrDefault();
+                    if (signal == null) return null;
+                    var plat = signal.MainUpPlatform;
+                    if (plat == null || !plat.IsMainUpPlatform) return null;
+                    if (plat.LockPositionStrength < 60 || signal.ChipControl?.ChipLockScore < 60) return null;
+                    if (signal.RiskScore > 50) return null;
+                    var rt = await _realTime.GetAsync(s.Code);
+                    return new ScreenerResultItem
+                    {
+                        Dragon = _dragon.Screen(bars) ?? new DragonScreener.DragonResult(s.Code, s.Name, DateTime.Today, 0, "", 0),
+                        Signal = signal,
+                        Suggestion = _reasoner.Suggestion(signal.SignalType, signal.Decision, signal.Reasons),
+                        RealTime = rt,
+                        IsMainUpPlatform = true,
+                        LockPositionStrength = plat.LockPositionStrength,
+                        SecondWaveProbability = plat.SecondWaveProbability,
+                        SectorEmotionLabel = signal.SectorEmotion?.Cycle.ToString(),
+                        ChipLockScore = signal.ChipControl?.ChipLockScore
+                    };
+                }
+                else
+                {
+                    var dragon = _dragon.Screen(bars);
+                    if (dragon == null) return null;
+                    var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
+                    var signal = signals.FirstOrDefault();
+                    if (signal == null || signal.RiskScore > 50) return null;
+                    var rt = await _realTime.GetAsync(s.Code);
+                    return new ScreenerResultItem
+                    {
+                        Dragon = dragon,
+                        Signal = signal,
+                        Suggestion = _reasoner.Suggestion(signal.SignalType, signal.Decision, signal.Reasons),
+                        RealTime = rt,
+                        IsMainUpPlatform = signal.MainUpPlatform?.IsMainUpPlatform ?? false,
+                        LockPositionStrength = signal.MainUpPlatform?.LockPositionStrength,
+                        SecondWaveProbability = signal.MainUpPlatform?.SecondWaveProbability,
+                        SectorEmotionLabel = signal.SectorEmotion?.Cycle.ToString(),
+                        ChipLockScore = signal.ChipControl?.ChipLockScore
+                    };
+                }
             }
             catch { return null; }
             finally { semaphore.Release(); }
         });
 
         var results = await Task.WhenAll(tasks);
-        items = results.Where(r => r != null).Cast<ScreenerResultItem>()
-            .OrderBy(x => x.Signal.RiskScore).ToList();
+        items = mode == "mainupplatform"
+            ? results.Where(r => r != null).Cast<ScreenerResultItem>()
+                .OrderByDescending(x => x.SecondWaveProbability)
+                .ThenByDescending(x => x.LockPositionStrength)
+                .ThenBy(x => x.Signal.RiskScore).ToList()
+            : results.Where(r => r != null).Cast<ScreenerResultItem>()
+                .OrderBy(x => x.Signal.RiskScore).ToList();
 
         ViewBag.Sector = sector;
         ViewBag.Total = stocks.Count;
+        ViewBag.Mode = mode;
         return View("Result", items);
     }
 }

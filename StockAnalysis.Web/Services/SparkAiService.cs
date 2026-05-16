@@ -26,7 +26,11 @@ public class SparkAiService
         var body = new
         {
             model = _model,
-            messages = new[] { new { role = "user", content = userMessage } },
+            messages = new object[]
+            {
+                new { role = "system", content = "你是一位专业的A股技术分析助手，擅长K线形态、均线系统、量价关系和风险控制。请用简洁专业的语言回答用户的股票分析问题。" },
+                new { role = "user", content = userMessage }
+            },
             stream = false
         };
 
@@ -38,7 +42,6 @@ public class SparkAiService
 
         var resp = await _http.SendAsync(req);
         var json = await resp.Content.ReadAsStringAsync();
-        Console.WriteLine($"[SPARK RAW] {json}");
         try
         {
             var doc = JsonDocument.Parse(json).RootElement;

@@ -1,0 +1,30 @@
+@using StockAnalysis.Web.Models
+@{
+    ViewData["Title"] = "每日机会池";
+    var history = ViewBag.History as List<WatchPoolResult> ?? [];
+}
+
+<h4 class="mb-1">每日机会池</h4>
+<p class="text-muted small mb-3">自动扫描全市场，筛选符合"主升平台+筹码锁定"模式的候选股，每日生成 10~30 只观察池。</p>
+
+<div class="d-flex gap-2 mb-4">
+    <form method="post" asp-action="Generate">
+        <button type="submit" class="btn btn-primary btn-lg">生成今日机会池</button>
+    </form>
+    <div class="text-muted small align-self-center">扫描全市场约需 5~15 分钟，请耐心等待</div>
+</div>
+
+@if (history.Any())
+{
+    <h6 class="mb-2">历史记录</h6>
+    <div class="list-group" style="max-width:400px">
+        @foreach (var h in history)
+        {
+            <a href="@Url.Action("History", new { date = h.Date.ToString("yyyy-MM-dd") })"
+               class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                <span>@h.Date.ToString("yyyy-MM-dd")</span>
+                <span class="text-muted small">入选 @h.Items.Count 只 / 扫描 @h.ScannedCount 只</span>
+            </a>
+        }
+    </div>
+}

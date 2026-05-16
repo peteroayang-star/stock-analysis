@@ -44,7 +44,7 @@
     var currentController = ViewContext.RouteData.Values["controller"]?.ToString();
     var currentAction = ViewContext.RouteData.Values["action"]?.ToString();
     Func<string, string, string> nav = (ctrl, action) =>
-        "nav-link text-dark" + (currentController == ctrl && currentAction == action ? " active fw-bold" : "");
+        "nav-link text-dark" + (currentController == ctrl && (action == "*" || currentAction == action) ? " active fw-bold" : "");
 }
                     <ul class="navbar-nav flex-grow-1">
                         <li class="nav-item"><a class="@nav("Home","Index")" asp-controller="Home" asp-action="Index">首页</a></li>
@@ -53,6 +53,7 @@
                         <li class="nav-item"><a class="@nav("Backtest","Index")" asp-controller="Backtest" asp-action="Index">历史回测</a></li>
                         <li class="nav-item"><a class="@nav("Opportunity","Index")" asp-controller="Opportunity" asp-action="Index">机会池</a></li>
                         <li class="nav-item"><a class="@nav("Screener","Index")" asp-controller="Screener" asp-action="Index">龙头选股</a></li>
+                        <li class="nav-item"><a class="@nav("WatchPool","*")" asp-controller="WatchPool" asp-action="Index">每日机会池</a></li>
                         <li class="nav-item"><a class="@nav("Ai","Index")" asp-controller="Ai" asp-action="Index">AI问答</a></li>
                     </ul>
                 </div>

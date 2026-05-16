@@ -92,7 +92,7 @@ public class StockController : Controller
         if (bars.Last().Date.Date >= DateTime.Today.AddDays(-1))
             minuteBars = await _marketData.TryGetMinuteBarsAsync(bars.Last().Code, bars.Last().Date);
 
-        var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars, minuteBars);
+        var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars, minuteBars, skipAmountFilter: true);
         ViewBag.ExcludeReason = _analyzer.LastExcludeReason;
         var ranked = _ranker.Rank(signals);
         var items = new List<SignalWithSuggestion>();

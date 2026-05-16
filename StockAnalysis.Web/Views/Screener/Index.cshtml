@@ -23,6 +23,13 @@
                 <input name="sector" id="sector-input" type="text" class="form-control form-control-lg"
                        placeholder="例如：算力租赁、液冷、CPO..." required />
             </div>
+            <div class="mb-3">
+                <label class="form-label">筛选模式</label>
+                <select name="mode" class="form-select">
+                    <option value="dragon">普通龙头回调</option>
+                    <option value="mainupplatform">主升平台模式（二波机会）</option>
+                </select>
+            </div>
             @Html.ValidationSummary(false, "", new { @class = "text-danger small" })
             <button type="submit" class="btn btn-primary btn-lg w-100">开始扫描</button>
         </form>

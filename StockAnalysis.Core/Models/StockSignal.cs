@@ -1,3 +1,5 @@
+using StockAnalysis.Core.Engines;
+
 namespace StockAnalysis.Core.Models;
 
 /// <summary>票型风格</summary>
@@ -102,6 +104,9 @@ public enum TradingMode
     Portfolio
 }
 
+/// <summary>板块情绪周期</summary>
+public enum SectorEmotionCycle { IcePoint, Recovery, Divergence, Consensus, Climax, Decline }
+
 /// <summary>主力行为</summary>
 public enum SmartMoneyBehavior
 {
@@ -196,4 +201,14 @@ public class StockSignal
     public StockStyle StockStyle { get; set; }
     /// <summary>主力行为识别结果</summary>
     public MainForceBehaviorResult? MainForceBehavior { get; set; }
+    /// <summary>主升浪平台识别结果</summary>
+    public MainUpPlatformResult? MainUpPlatform { get; set; }
+    /// <summary>龙虎榜行为分析结果</summary>
+    public DragonTigerBehaviorResult? DragonTiger { get; set; }
+    /// <summary>板块情绪周期结果</summary>
+    public SectorEmotionResult? SectorEmotion { get; set; }
+    /// <summary>筹码控盘承接结果</summary>
+    public ChipControlResult? ChipControl { get; set; }
+    /// <summary>板块共振分析结果</summary>
+    public SectorResonanceResult? SectorResonance { get; set; }
 }
