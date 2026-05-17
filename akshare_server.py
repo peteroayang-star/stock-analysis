@@ -216,14 +216,6 @@ def format_period(s):
         return f"{y}年{q}" if q else f"{y}年{m}月"
     return s
 
-@app.route("/finance_debug/<code>")
-def get_finance_debug(code):
-    try:
-        df = ak.stock_financial_abstract(symbol=code)
-        return jsonify({"columns": [str(c) for c in df.columns.tolist()]})
-    except Exception as e:
-        return {"error": str(e)}, 500
-
 def get_latest_quarter_date():
     """返回最近已结束季度的报告期，格式 20260331"""
     from datetime import date

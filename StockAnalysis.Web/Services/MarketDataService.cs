@@ -48,16 +48,17 @@ public class MarketDataService
                     bars.Add(new StockBar
                     {
                         Code = last.Code, Name = last.Name, Date = DateTime.Today,
-                        Open = quote.Open, High = Math.Max(quote.Open, quote.Price),
-                        Low = Math.Min(quote.Open, quote.Price),
-                        Close = quote.Price, Volume = quote.Volume, Amount = last.Amount
+                        Open = quote.Open,
+                        High = quote.High > 0 ? quote.High : Math.Max(quote.Open, quote.Price),
+                        Low = quote.Low > 0 ? quote.Low : Math.Min(quote.Open, quote.Price),
+                        Close = quote.Price, Volume = quote.Volume, Amount = quote.Amount > 0 ? quote.Amount : last.Amount
                     });
                 }
                 else
                 {
                     last.Close = quote.Price;
-                    last.High = Math.Max(last.High, quote.Price);
-                    last.Low = Math.Min(last.Low, quote.Price);
+                    last.High = Math.Max(last.High, quote.High > 0 ? quote.High : quote.Price);
+                    last.Low = Math.Min(last.Low, quote.Low > 0 ? quote.Low : quote.Price);
                 }
             }
             return (bars, null);

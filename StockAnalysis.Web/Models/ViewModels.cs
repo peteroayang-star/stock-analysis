@@ -60,9 +60,16 @@ public class WatchPoolResult
 {
     public DateTime Date { get; set; } = DateTime.Today;
     public List<WatchPoolItem> Items { get; set; } = [];
+    public int TotalCount { get; set; }
     public int ScannedCount { get; set; }
     public int FailedCount { get; set; }
     public int FilteredCount { get; set; }
+    public int MatchedCount { get; set; }
+    public int RemainingCount => TotalCount - ScannedCount - FailedCount - FilteredCount;
+    public string? CurrentStockCode { get; set; }
+    public string? CurrentStockName { get; set; }
+    public double ElapsedSeconds { get; set; }
+    public double EstimatedRemainingSeconds { get; set; }
     public List<MainstreamSectorResult> Top10Sectors { get; set; } = [];
     public List<SectorRotationResult> SectorRotations { get; set; } = [];
     // 数据源状态

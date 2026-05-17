@@ -1,0 +1,31 @@
+@model StockAnalysis.Web.Models.SignalWithSuggestion
+
+@if (Model.Finance != null && Model.Finance.Periods.Length > 0)
+{
+    <div class="layer-finance">
+        <details open>
+            <summary>
+                业绩数据
+                @if (Model.FinanceRiskAdj != 0)
+                {
+                    var adjSign = Model.FinanceRiskAdj > 0 ? "+" : "";
+                    <span class="@(Model.FinanceRiskAdj > 0 ? "l3-value down" : "l3-value up") ms-2">风险调整 @adjSign@Model.FinanceRiskAdj</span>
+                }
+            </summary>
+            <div class="d-flex gap-3 flex-wrap mt-2">
+                @for (int i = 0; i < Model.Finance.Periods.Length; i++)
+                {
+                    var yoy    = Model.Finance.ProfitYoy.Length > i ? Model.Finance.ProfitYoy[i] : double.NaN;
+                    var revYoy = Model.Finance.RevenueYoy.Length > i ? Model.Finance.RevenueYoy[i] : double.NaN;
+                    bool yi = double.IsNaN(yoy) || double.IsInfinity(yoy);
+                    bool ri = double.IsNaN(revYoy) || double.IsInfinity(revYoy);
+                    <div class="finance-card">
+                        <div class="fc-period">@Model.Finance.Periods[i]</div>
+                        <div class="fc-row">净利润 <span class="@(yi?"":"l3-value "+(yoy>0?"up":"down"))">@(yi?"-":$"{yoy:F1}%")</span></div>
+                        <div class="fc-row">营收 <span class="@(ri?"":"l3-value "+(revYoy>0?"up":"down"))">@(ri?"-":$"{revYoy:F1}%")</span></div>
+                    </div>
+                }
+            </div>
+        </details>
+    </div>
+}

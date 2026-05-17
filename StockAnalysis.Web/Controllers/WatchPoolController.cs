@@ -8,12 +8,12 @@ namespace StockAnalysis.Web.Controllers;
 public class WatchPoolController : Controller
 {
     private readonly DailyWatchPoolService _service;
-    private readonly MarketDataService _marketData;
+    private readonly MarketIndexService _marketIndex;
 
-    public WatchPoolController(DailyWatchPoolService service, MarketDataService marketData)
+    public WatchPoolController(DailyWatchPoolService service, MarketIndexService marketIndex)
     {
         _service = service;
-        _marketData = marketData;
+        _marketIndex = marketIndex;
     }
 
     [HttpGet]
@@ -25,12 +25,10 @@ public class WatchPoolController : Controller
     }
 
     [HttpPost]
-    public async Task<IActionResult> Generate()
+    public async Task<IActionResult> Generate(CancellationToken ct)
     {
-        List<StockBar>? marketBars = null;
-        try { (marketBars, _) = await _marketData.TryGetBarsAsync("000001"); } catch { }
-
-        var result = await _service.GenerateAsync(marketBars);
+        var marketBars = await _marketIndex.GetMarketBarsAsync();
+        var result = await _service.GenerateAsync(marketBars, ct: ct);
         return View("Result", result);
     }
 

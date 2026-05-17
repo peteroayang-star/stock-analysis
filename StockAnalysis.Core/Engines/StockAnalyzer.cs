@@ -5,6 +5,7 @@ namespace StockAnalysis.Core.Engines;
 /// <summary>股票分析主入口，只负责流程编排，不写具体规则</summary>
 public class StockAnalyzer
 {
+    // TODO: 子引擎实例化应通过依赖注入，当前为减少改动范围保留 new
     private readonly BuySignalDetector _signal;
     private readonly RiskScoreEngine _risk = new();
     private readonly DecisionEngine _decision;
@@ -32,8 +33,10 @@ public class StockAnalyzer
         _filter = new StockFilter(cfg.Filter);
     }
 
-    public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate, List<StockBar>? marketBars = null, List<MinuteBar>? minuteBars = null,
-        List<DragonTigerRecord>? dragonTigerRecords = null, List<List<StockBar>>? sectorStocks = null, string? sectorName = null, bool skipAmountFilter = false)
+    public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate,
+        List<StockBar>? marketBars = null, List<MinuteBar>? minuteBars = null,
+        List<DragonTigerRecord>? dragonTigerRecords = null, List<List<StockBar>>? sectorStocks = null,
+        string? sectorName = null, bool skipAmountFilter = false)
     {
         int last = bars.Count - 1;
         if (last < 28) return [];
@@ -43,29 +46,17 @@ public class StockAnalyzer
         var excludeReason = _filter.ShouldExclude(bar.Code, bar.Name, bars, skipAmountFilter);
         if (excludeReason != null) { LastExcludeReason = excludeReason; return []; }
 
-        // 1. 指标
+        // ── 1. 基础指标 + 大盘 ──────────────────────────────────
         var ind = _calc.Calculate(bars, last);
+        bool marketWeak = ComputeMarketWeak(marketBars);
 
-        // 2. 大盘弱势
-        bool marketWeak = false;
-        if (marketBars != null && marketBars.Count >= 20)
-        {
-            var mInd = _calc.Calculate(marketBars, marketBars.Count - 1);
-            marketWeak = mInd != null && mInd.MA5 < mInd.MA20;
-        }
-
-        // 3. 量价 → 周期 → 信号 → 票型识别 → 风险 → 主力行为
+        // ── 2. 量价 → 周期 → 信号 → 主力 → 涨停 → 票型 → 风险 ──
         var vol = _volume.Analyze(bars, last);
         var cycle = _cycle.Detect(bars, last, vol);
         var (signalType, signalReason) = _signal.Detect(bars, last, vol, cycle);
         var smartMoney = _smartMoney.Analyze(bars, last, vol);
-        // 先计算14天涨停次数，再识别票型，再用票型调整分时/风险评分
-        int limitUpCount14Pre = 0;
-        int checkDaysPre = Math.Min(14, last);
-        for (int i = last - checkDaysPre + 1; i <= last; i++)
-            if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
-                limitUpCount14Pre++;
-        var stockStyle = _styleDetector.Detect(bars, last, limitUpCount14Pre);
+        int limitUpCount = ComputeLimitUpCount(bars, last);
+        var stockStyle = _styleDetector.Detect(bars, last, limitUpCount);
         var riskResult = _risk.Score(bars, last, vol, marketWeak, stockStyle);
         var riskScore = riskResult.Total;
         var riskReasons = riskResult.Reasons;
@@ -74,27 +65,28 @@ public class StockAnalyzer
             intradayWeak: intraday.Score < 40,
             intradayDanger: intraday.IsDangerZone);
 
-        // 新引擎（在风险评分后，决策前）
+        // ── 3. 新引擎 ──────────────────────────────────────────
         var platform    = _mainUpPlatform.Analyze(bars, last, ind, vol, cycle, riskScore);
         var dragonTiger = _dragonTiger.Analyze(dragonTigerRecords);
         var sectorEmo   = _sectorEmotion.Analyze(sectorName, sectorStocks);
         var chipControl = _chipControl.Analyze(bars, last, ind, vol);
         var sectorRes   = _sectorResonance.Analyze(bars, sectorStocks, minuteBars);
 
-        // 4. 趋势
+        // ── 4. 趋势 + 止损 ─────────────────────────────────────
         var trend = ind != null && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20 ? Trend.Up
                   : ind != null && ind.MA5 < ind.MA10 && ind.MA10 < ind.MA20 ? Trend.Down
                   : Trend.Sideways;
-
         var trendStage = CalcTrendStage(bars, last, ind);
 
-        // 5. 强制规则所需标志
         bool belowMA20 = ind != null && bar.Close < ind.MA20;
         bool macdDead = riskReasons.Any(r => r.Contains("MACD死叉"));
-        decimal stopLoss = Math.Round(bar.Close * 0.98m, 2);  // 当前价-2%作为止损
-        bool belowStopLoss = stopLoss > 0 && bar.Close <= stopLoss;
+        // 止损价：模型暂无持仓成本字段，使用前一日收盘作为入场参考价（模拟前一日入场）
+        decimal refPrice = last >= 1 ? bars[last - 1].Close : bar.Close;
+        decimal stopLoss = Math.Round(refPrice * 0.98m, 2);
+        bool belowStopLoss = bar.Close <= stopLoss
+            || (ind != null && bar.Close < ind.MA20 && refPrice > ind.MA20);
 
-        // 6. 决策
+        // ── 5. 决策 ────────────────────────────────────────────
         Decision dec;
         string? forceReason;
         if (mode == TradingMode.Portfolio)
@@ -105,7 +97,7 @@ public class StockAnalyzer
                 cycle, vol, belowMA20, macdDead, belowStopLoss,
                 platform, dragonTiger, sectorEmo, chipControl, sectorRes);
 
-        // 7. 稳定性过滤
+        // ── 6. 稳定性过滤 ──────────────────────────────────────
         if (mode == TradingMode.Candidate)
         {
             var (stabilityScore, passRequired) = _stability.Evaluate(bars, last);
@@ -117,88 +109,89 @@ public class StockAnalyzer
             }
         }
 
-        // 8. 合并原因（最多3条）
+        // ── 7. 组装结果 ────────────────────────────────────────
         var reasons = new List<string>();
         if (signalReason != "") reasons.Add(signalReason);
         reasons.AddRange(riskReasons);
         if (mode == TradingMode.Portfolio && dec == Decision.Sell && cycle.Cycle == MarketCycle.End)
             reasons.Insert(0, cycle.Description);
 
-        // 9. 目标价（基于当前价格，空仓时清除）
         decimal? targetPrice = (dec == Decision.Ignore || dec == Decision.Sell)
-            ? null : Math.Round(bar.Close * 1.05m, 2);  // 当前价+5%作为目标
+            ? null : Math.Round(bar.Close * 1.05m, 2);
 
-        // 10. 辅助标记
-        bool supportBroken = belowMA20;
-        bool structureAbnormal = supportBroken && (ind == null || bar.Close < ind.MA20 * 0.95m);
-
-        // 11. 14天涨停次数（需在情绪龙头判断前计算）
-        int limitUpCount = 0;
-        int checkDays = Math.Min(14, last);
-        for (int i = last - checkDays + 1; i <= last; i++)
-            if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
-                limitUpCount++;
-
-        // 12. 操作建议
         bool isEmotionLeader = limitUpCount >= 2
             || smartMoney.Behavior == SmartMoneyBehavior.AggressiveAttack
             || (smartMoney.Behavior == SmartMoneyBehavior.HighShock && riskResult.SentimentRisk >= 50);
         var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol, isEmotionLeader, intraday.Grade);
 
-        // 13. 信号强度
-        string strength = (belowMA20 && macdDead) || cycle.Cycle == MarketCycle.End ? "弱"
-                        : dec == Decision.Buy ? "强"
-                        : dec == Decision.Watch || dec == Decision.TryBuy ? "中"
-                        : "弱";
+        int limitUpScore = ComputeLimitUpScore(intraday, bar, ind, vol, limitUpCount, stockStyle, mainForce, riskScore);
 
-        // 14. 交易价值评分（独立于风险分，越高越值得参与）
-        int tradeValue = cycle.Cycle switch {
-            MarketCycle.MainUp    => 35,
-            MarketCycle.Consensus => 25,
-            MarketCycle.Diverge   => 15,
-            MarketCycle.Launch    => 10,
-            _                     => 0
-        };
-        tradeValue += vol.State switch {
-            VolumeState.AggressiveBuy     => 25,
-            VolumeState.ShrinkConsolidate => 15,
-            VolumeState.ShrinkPullback    => 10,
-            _                             => 0
-        };
-        tradeValue += signalType switch {
-            BuySignalType.VolumeBreakout  => 20,
-            BuySignalType.PullbackSupport => 15,
-            BuySignalType.TrendPullback   => 12,
-            BuySignalType.VolumeWashout   => 10,
-            _                             => 0
-        };
-        if (limitUpCount > 0) tradeValue += Math.Min(limitUpCount * 5, 15);
-        if (riskScore >= 66) tradeValue = (int)(tradeValue * 0.4);
-        else if (riskScore >= 51) tradeValue = (int)(tradeValue * 0.7);
-        tradeValue = Math.Min(tradeValue, 100);
+        return [BuildResult(bar, signalType, riskScore, dec, reasons, ind, stopLoss, targetPrice,
+            trend, trendStage, action, position, intraday, limitUpCount, belowMA20, cycle, vol,
+            smartMoney, riskResult, isEmotionLeader, limitUpScore, mainForce, platform,
+            dragonTiger, sectorEmo, chipControl, sectorRes)];
+    }
 
-        // 15. 次日涨停潜力评分（分时强度 + 5日线 + 换手率 + 量能结构）
-        int limitUpScore = 0;
-        limitUpScore += (int)(intraday.Score * 0.4);  // 分时强度权重40%
-        if (ind != null && bar.Close > ind.MA5) limitUpScore += 15;  // 站稳5日线
-        if (vol.State == VolumeState.AggressiveBuy) limitUpScore += 20;
-        else if (vol.State == VolumeState.ShrinkConsolidate) limitUpScore += 10;
-        if (limitUpCount > 0) limitUpScore += Math.Min(limitUpCount * 5, 15);  // 连板动能
-        // 趋势惯性加成：趋势机构型/中军容量型在主升/趋势中继阶段，即使不涨停也有冲高预期
+    // ── 子方法 ────────────────────────────────────────────────────────────
+
+    /// <summary>计算14天内涨停次数（唯一计算点，消除重复）</summary>
+    private static int ComputeLimitUpCount(List<StockBar> bars, int last)
+    {
+        int count = 0;
+        int checkDays = Math.Min(14, last);
+        for (int i = last - checkDays + 1; i <= last; i++)
+            if (bars[i - 1].Close > 0 && (bars[i].High - bars[i - 1].Close) / bars[i - 1].Close >= 0.095m)
+                count++;
+        return count;
+    }
+
+    /// <summary>大盘弱势判断</summary>
+    private bool ComputeMarketWeak(List<StockBar>? marketBars)
+    {
+        if (marketBars == null || marketBars.Count < 20) return false;
+        var mInd = _calc.Calculate(marketBars, marketBars.Count - 1);
+        return mInd != null && mInd.MA5 < mInd.MA20;
+    }
+
+    /// <summary>次日涨停潜力评分（分时强度 + 5日线 + 量能结构 + 趋势惯性）</summary>
+    private static int ComputeLimitUpScore(IntradayStrengthResult intraday, StockBar bar,
+        IndicatorCalculator.Indicators? ind, VolumeResult vol, int limitUpCount,
+        StockStyle stockStyle, MainForceBehaviorResult mainForce, int riskScore)
+    {
+        int score = 0;
+        score += (int)(intraday.Score * 0.4);
+        if (ind != null && bar.Close > ind.MA5) score += 15;
+        if (vol.State == VolumeState.AggressiveBuy) score += 20;
+        else if (vol.State == VolumeState.ShrinkConsolidate) score += 10;
+        if (limitUpCount > 0) score += Math.Min(limitUpCount * 5, 15);
+
         if (stockStyle is StockStyle.TrendInstitutional or StockStyle.LargeCapVolume)
         {
             if (mainForce.Stage is MarketStage.MainUpAccel)
-                limitUpScore += 20;  // 主升加速期：趋势惯性最强
+                score += 20;
             else if (mainForce.Stage is MarketStage.TrendRelay or MarketStage.WashoutDip)
-                limitUpScore += 12;  // 趋势中继/洗筹期：有持续推进预期
+                score += 12;
         }
-        if (intraday.Pattern == IntradayPattern.TailTrap || intraday.Pattern == IntradayPattern.SmartExit)
-            limitUpScore = (int)(limitUpScore * 0.3);  // 诱多/撤退大幅折扣
-        if (riskScore >= 66) limitUpScore = (int)(limitUpScore * 0.4);
-        else if (riskScore >= 51) limitUpScore = (int)(limitUpScore * 0.7);
-        limitUpScore = Math.Min(limitUpScore, 100);
 
-        return [new StockSignal
+        if (intraday.Pattern == IntradayPattern.TailTrap || intraday.Pattern == IntradayPattern.SmartExit)
+            score = (int)(score * 0.3);
+        if (riskScore >= 66) score = (int)(score * 0.4);
+        else if (riskScore >= 51) score = (int)(score * 0.7);
+        return Math.Min(score, 100);
+    }
+
+    /// <summary>构建 StockSignal 结果对象</summary>
+    private static StockSignal BuildResult(StockBar bar, BuySignalType signalType, int riskScore,
+        Decision dec, List<string> reasons, IndicatorCalculator.Indicators? ind,
+        decimal stopLoss, decimal? targetPrice, Trend trend, TrendStage trendStage,
+        string action, int position, IntradayStrengthResult intraday, int limitUpCount,
+        bool belowMA20, CycleResult cycle, VolumeResult vol, SmartMoneyResult smartMoney,
+        RiskResult riskResult, bool isEmotionLeader, int limitUpScore,
+        MainForceBehaviorResult mainForce, MainUpPlatformResult? platform,
+        DragonTigerBehaviorResult? dragonTiger, SectorEmotionResult? sectorEmo,
+        ChipControlResult? chipControl, SectorResonanceResult? sectorRes)
+    {
+        return new StockSignal
         {
             Code = bar.Code, Name = bar.Name, Date = bar.Date, Close = bar.Close,
             SignalType = signalType, RiskScore = riskScore, Decision = dec,
@@ -213,13 +206,9 @@ public class StockAnalyzer
                         : intraday.Grade == AttackGrade.B ? Math.Min(position, 15)
                         : position,
             LimitUpCountIn14Days = limitUpCount,
-            AvgVolume10 = ind != null ? (long)ind.VolMA10 : 0,
-            SupportBroken = supportBroken,
-            StructureAbnormal = structureAbnormal,
-            SignalStrength = strength,
+            SupportBroken = belowMA20,
             CycleStage = cycle.Description,
             VolumeDescription = vol.Description,
-            TradeValueScore = tradeValue,
             SmartMoney = smartMoney.Behavior,
             SmartMoneyDescription = smartMoney.Description,
             TrendRisk = riskResult.TrendRisk,
@@ -241,7 +230,7 @@ public class StockAnalyzer
             SectorEmotion  = sectorEmo,
             ChipControl    = chipControl,
             SectorResonance = sectorRes,
-        }];
+        };
     }
 
     private TrendStage CalcTrendStage(List<StockBar> bars, int last, IndicatorCalculator.Indicators? ind)
@@ -259,7 +248,7 @@ public class StockAnalyzer
         return TrendStage.Sideways;
     }
 
-    private (string action, int position) GenerateAdvice(
+    private static (string action, int position) GenerateAdvice(
         Decision dec, BuySignalType signal, int risk, Trend trend,
         CycleResult cycle, VolumeResult vol, bool isEmotionLeader, AttackGrade grade = AttackGrade.B)
     {
@@ -281,13 +270,11 @@ public class StockAnalyzer
             };
         }
 
-        // 半仓条件：倍量突破 + 低风险 + 主升阶段 + 放量进攻
         if (dec == Decision.Buy && signal == BuySignalType.VolumeBreakout &&
             risk <= 20 && cycle.Cycle == MarketCycle.MainUp &&
             vol.State == VolumeState.AggressiveBuy)
             return ("倍量突破确认，主升阶段，量价配合极佳", 50);
 
-        // 40%仓位：倍量突破 + 低风险 + 一致阶段
         if (dec == Decision.Buy && signal == BuySignalType.VolumeBreakout &&
             risk <= 25 && cycle.Cycle == MarketCycle.Consensus)
             return ("倍量突破确认，量价配合良好", 40);

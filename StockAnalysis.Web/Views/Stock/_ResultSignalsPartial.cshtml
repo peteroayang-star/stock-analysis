@@ -1,0 +1,162 @@
+@model StockAnalysis.Web.Models.SignalWithSuggestion
+@using StockAnalysis.Core.Models
+@{
+    var s = Model.Signal;
+    var rt = Model.RealTime;
+
+    string TrendClass(Trend t) => t switch { Trend.Up => "up", Trend.Down => "down", _ => "warn" };
+    string TrendLabel(Trend t) => t switch { Trend.Up => "上涨偏强", Trend.Down => "下跌偏弱", _ => "震荡中性" };
+    string TrendStageLabel(TrendStage s2) => s2 switch {
+        TrendStage.EarlyUp => "主升初期", TrendStage.MidUp => "主升中期",
+        TrendStage.LateUp  => "主升末期", TrendStage.Down  => "下跌阶段", _ => "震荡整理"
+    };
+    string SignalLabel(BuySignalType t) => t switch {
+        BuySignalType.VolumeBreakout  => "倍量突破",
+        BuySignalType.PullbackSupport => "缩量回踩",
+        BuySignalType.VolumeWashout   => "凹量洗盘",
+        BuySignalType.TrendPullback   => "趋势回调",
+        _                             => ""
+    };
+    string RiskBarColor(int score) => score >= 70 ? "#dc3545" : score >= 50 ? "#fd7e14" : score >= 25 ? "#ffc107" : "#198754";
+}
+
+<!-- 市场状态分析 -->
+<div class="l3-block" style="grid-column: 1 / -1; background:#1a1f2e;padding:12px;border-radius:4px;margin-bottom:12px">
+    <div class="l3-title" style="color:#60A5FA">当前市场状态</div>
+    <div class="l3-value" style="font-size:14px;color:#E5E7EB;margin-top:8px">
+        @{
+            var marketState = (s.VolumeDescription, s.Trend, s.TrendStage) switch {
+                (var v, Trend.Up, TrendStage.EarlyUp) when v.Contains("放量") => "放量突破阶段",
+                (var v, Trend.Up, _) when v.Contains("缩量") => "缩量上涨阶段",
+                (var v, _, _) when v.Contains("放量滞涨") => "高位分歧阶段",
+                (var v, Trend.Sideways, _) when v.Contains("缩量") => "缩量整理阶段",
+                (var v, Trend.Down, _) when v.Contains("放量") => "放量回调阶段",
+                (_, Trend.Up, TrendStage.LateUp) => "趋势修复阶段",
+                (var v, _, _) when v.Contains("回踩") => "回踩确认阶段",
+                _ => "资金博弈阶段"
+            };
+        }
+        <strong>@marketState</strong>
+    </div>
+    <div style="color:#9CA3AF;font-size:12px;margin-top:8px;line-height:1.6">
+        @if (!string.IsNullOrEmpty(s.VolumeDescription))
+        {
+            <div>· 量价关系：@s.VolumeDescription</div>
+        }
+        @if (s.Trend != Trend.Sideways)
+        {
+            <div>· 趋势状态：@TrendLabel(s.Trend)</div>
+        }
+        @if (rt != null && s.Close > 0)
+        {
+            var volRatio = rt.Amount / (s.Close * 10000);
+            if (volRatio > 1.3m)
+            {
+                <div>· 成交量较前期提升 @(((volRatio - 1) * 100).ToString("F0"))%</div>
+            }
+        }
+    </div>
+</div>
+
+<div class="layer-3-grid">
+
+    <div class="l3-block">
+        <div class="l3-title">交易依据</div>
+        <div class="l3-value @TrendClass(s.Trend) mb-1">@TrendLabel(s.Trend) · @TrendStageLabel(s.TrendStage)</div>
+        @if (s.SignalType != BuySignalType.None)
+        { <div class="l3-value mb-1" style="color:#ffc107">信号：@SignalLabel(s.SignalType)</div> }
+        <div class="l3-value" style="color:#D1D5DB;font-size:12px">@s.ActionAdvice</div>
+        @if (s.PositionPct > 0 && s.IntradayPatternType != IntradayPattern.TailTrap && !s.IntradayDangerZone)
+        { <div class="mt-2"><span class="tag tag-hold">建议仓位 @s.PositionPct%</span></div> }
+    </div>
+
+    <div class="l3-block">
+        <div class="l3-title">风险拆分</div>
+        @foreach (var (label, val, cls) in new[] { ("趋势", s.TrendRisk, "trend-row"), ("波动", s.VolatilityRisk, "volatility-row"), ("情绪", s.SentimentRisk, "sentiment") })
+        {
+            <div class="risk-row @cls @(label == "情绪" && val >= 50 ? "high-sentiment" : "")">
+                <span class="risk-label">@label</span>
+                <div class="risk-bar-wrap">
+                    <div class="risk-bar" style="width:@(Math.Min(val,100))%;background:@RiskBarColor(val)"></div>
+                </div>
+                <span class="risk-num">@val</span>
+            </div>
+        }
+        @if (s.Reasons.Any())
+        {
+            <div class="mt-2" style="color:#9CA3AF;font-size:11px">
+                @foreach (var r in s.Reasons.Take(2)) { <div>· @r</div> }
+            </div>
+        }
+
+        @* 承接分析 *@
+        @if (rt != null && s.SupportPrice.HasValue)
+        {
+            var supportHold = rt.Price >= s.SupportPrice.Value;
+            <div class="mt-2 pt-2" style="border-top:1px solid #374151">
+                <div style="color:#9CA3AF;font-size:11px;font-weight:600;margin-bottom:4px">承接观察</div>
+                @if (supportHold)
+                {
+                    <div style="color:#10B981;font-size:11px">· 均线支撑有效</div>
+                }
+                else if (s.SupportBroken)
+                {
+                    <div style="color:#EF4444;font-size:11px">· 已跌破关键均线</div>
+                }
+                @if (s.VolumeDescription?.Contains("缩量") == true && rt.ChangePct < 0)
+                {
+                    <div style="color:#9CA3AF;font-size:11px">· 回落缩量，恐慌不明显</div>
+                }
+                @if (s.VolumeDescription?.Contains("放量") == true && rt.ChangePct < -2)
+                {
+                    <div style="color:#F59E0B;font-size:11px">· 放量回落，抛压增加</div>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="l3-block">
+        <div class="l3-title">关键价位</div>
+        <div class="d-flex flex-column gap-1" style="font-size:12px">
+            @if (s.SupportPrice.HasValue)
+            {
+                <div class="d-flex justify-content-between">
+                    <span style="color:#9CA3AF">支撑 MA20 @(s.SupportBroken ? "⚠已跌破" : "")</span>
+                    <span class="@(s.SupportBroken ? "l3-value down" : "l3-value")">@s.SupportPrice.Value.ToString("F2")</span>
+                </div>
+                @if (s.SupportBroken)
+                {
+                    <div style="color:#9CA3AF;font-size:11px">跌破后：短线趋势可能转弱</div>
+                }
+            }
+            @if (s.StopLossPrice.HasValue)
+            {
+                var stopTriggered = rt != null && rt.Price < s.StopLossPrice.Value;
+                <div class="d-flex justify-content-between">
+                    <span style="color:#9CA3AF">止损 @(stopTriggered ? "⚠已触发" : "-2%")</span>
+                    <span class="l3-value down">@s.StopLossPrice.Value.ToString("F2")</span>
+                </div>
+                @if (stopTriggered)
+                {
+                    <div style="color:#9CA3AF;font-size:11px">触发后：量价结构将明显恶化</div>
+                }
+            }
+            @if (s.WatchPrice.HasValue)
+            {
+                <div class="d-flex justify-content-between">
+                    <span style="color:#9CA3AF">观察位</span>
+                    <span class="l3-value warn">@s.WatchPrice.Value.ToString("F2")</span>
+                </div>
+            }
+            @if (s.TargetPrice.HasValue && s.Decision != Decision.Watch)
+            {
+                <div class="d-flex justify-content-between">
+                    <span style="color:#9CA3AF">目标价</span>
+                    <span class="l3-value up">@s.TargetPrice.Value.ToString("F2")</span>
+                </div>
+                <div style="color:#9CA3AF;font-size:11px">若放量突破：可能进入加速段</div>
+            }
+        </div>
+    </div>
+
+</div>

@@ -4,8 +4,6 @@ using StockAnalysis.Core.Models;
 
 namespace StockAnalysis.Web.Services;
 
-public record RealtimeQuote(decimal Price, decimal ChangePct, decimal Open, decimal High, decimal Low, long Volume, decimal Amount);
-
 /// <summary>通过本地 AKShare HTTP 服务获取行情，并缓存到 Data/SystemStocks/</summary>
 public class AkShareDataService
 {
@@ -55,25 +53,6 @@ public class AkShareDataService
             return (json.GetProperty("code").GetString(), json.GetProperty("name").GetString());
         }
         catch { return (null, null); }
-    }
-
-    public async Task<RealtimeQuote?> TryGetRealtimeAsync(string code)
-    {
-        try
-        {
-            var json = await _http.GetStringAsync($"http://127.0.0.1:5100/realtime/{code}");
-            var doc = JsonDocument.Parse(json).RootElement;
-            return new RealtimeQuote(
-                doc.GetProperty("price").GetDecimal(),
-                doc.GetProperty("change_pct").GetDecimal(),
-                doc.GetProperty("open").GetDecimal(),
-                doc.GetProperty("high").GetDecimal(),
-                doc.GetProperty("low").GetDecimal(),
-                (long)doc.GetProperty("volume").GetDouble(),
-                doc.GetProperty("amount").GetDecimal()
-            );
-        }
-        catch { return null; }
     }
 
     /// <summary>

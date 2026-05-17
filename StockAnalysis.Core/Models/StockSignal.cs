@@ -157,20 +157,12 @@ public class StockSignal
     public int PositionPct { get; set; }
     /// <summary>14天内触及涨停次数</summary>
     public int LimitUpCountIn14Days { get; set; }
-    /// <summary>近10日平均成交量（手）</summary>
-    public long AvgVolume10 { get; set; }
     /// <summary>支撑位（MA20）是否已跌破</summary>
     public bool SupportBroken { get; set; }
-    /// <summary>价格结构异常（深度跌破支撑）</summary>
-    public bool StructureAbnormal { get; set; }
-    /// <summary>信号强度：强/中/弱</summary>
-    public string SignalStrength { get; set; } = "";
     /// <summary>周期阶段描述（启动/分歧/一致/主升/派发/结束）</summary>
     public string CycleStage { get; set; } = "";
     /// <summary>资金态度描述（放量进攻/缩量整理等）</summary>
     public string VolumeDescription { get; set; } = "";
-    /// <summary>交易价值评分（0-100，越高越值得参与，独立于风险分）</summary>
-    public int TradeValueScore { get; set; }
     /// <summary>主力行为</summary>
     public SmartMoneyBehavior SmartMoney { get; set; }
     /// <summary>主力行为描述</summary>

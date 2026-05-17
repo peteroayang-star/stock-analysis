@@ -13,16 +13,18 @@ public class StockController : Controller
     private readonly TencentRealTimeService _realTime;
     private readonly FinanceDataService _finance;
     private readonly SignalLogService _log;
+    private readonly MarketIndexService _marketIndex;
     private readonly RiskReasonAnalyzer _reasoner = new();
     private readonly DecisionRanker _ranker = new();
 
-    public StockController(StockAnalyzer analyzer, MarketDataService marketData, TencentRealTimeService realTime, FinanceDataService finance, SignalLogService log)
+    public StockController(StockAnalyzer analyzer, MarketDataService marketData, TencentRealTimeService realTime, FinanceDataService finance, SignalLogService log, MarketIndexService marketIndex)
     {
         _analyzer = analyzer;
         _marketData = marketData;
         _realTime = realTime;
         _finance = finance;
         _log = log;
+        _marketIndex = marketIndex;
     }
 
     [HttpGet] public IActionResult Index() => View();
@@ -85,8 +87,7 @@ public class StockController : Controller
             return View("Index");
         }
 
-        List<StockBar>? marketBars = null;
-        try { (marketBars, _) = await _marketData.TryGetBarsAsync("000001"); } catch { }
+        List<StockBar>? marketBars = await _marketIndex.GetMarketBarsAsync();
 
         List<MinuteBar>? minuteBars = null;
         if (bars.Last().Date.Date >= DateTime.Today.AddDays(-1))
@@ -100,28 +101,7 @@ public class StockController : Controller
         {
             var rt  = await _realTime.GetAsync(s.Code);
             var fin = await _finance.GetAsync(s.Code);
-
-            int finAdj = 0;
-            var finReasons = new List<string>();
-            if (fin != null && fin.ProfitYoy.Length > 0)
-            {
-                var latestProfitYoy  = Math.Abs(fin.ProfitYoy[0]) > 1000 ? double.NaN : fin.ProfitYoy[0];
-                var latestRevenueYoy = fin.RevenueYoy.Length > 0
-                    ? (Math.Abs(fin.RevenueYoy[0]) > 1000 ? double.NaN : fin.RevenueYoy[0])
-                    : double.NaN;
-
-                if (!double.IsNaN(latestProfitYoy))
-                {
-                    if (latestProfitYoy < -20)     { finAdj += 20; finReasons.Add($"净利润同比下滑{Math.Abs(latestProfitYoy):F1}%"); }
-                    else if (latestProfitYoy < 0)  { finAdj += 10; finReasons.Add($"净利润同比下滑{Math.Abs(latestProfitYoy):F1}%"); }
-                    else if (latestProfitYoy > 30) { finAdj -= 10; finReasons.Add($"净利润同比增长{latestProfitYoy:F1}%"); }
-                }
-                if (!double.IsNaN(latestRevenueYoy))
-                {
-                    if (latestRevenueYoy < -10)     { finAdj += 10; finReasons.Add($"营收同比下滑{Math.Abs(latestRevenueYoy):F1}%"); }
-                    else if (latestRevenueYoy > 20) { finAdj -= 5;  finReasons.Add($"营收同比增长{latestRevenueYoy:F1}%"); }
-                }
-            }
+            var (finAdj, finReasons) = FinanceHelper.CalculateRiskAdjustment(fin);
             s.RiskScore = Math.Clamp(s.RiskScore + finAdj, 0, 100);
 
             // 用实时价重算关键价位（避免本地CSV数据过期导致价位与现价严重偏离）

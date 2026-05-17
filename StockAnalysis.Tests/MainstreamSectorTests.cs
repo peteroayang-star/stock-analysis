@@ -100,48 +100,36 @@ public class MainstreamSectorScannerTests
         Assert.True(isValuePool, "满足所有条件应进入价值池");
     }
 
-    // 6. DecisionEngine：板块退潮时禁止激进
+    // 6. DecisionEngine：倍量突破+低风险+一致阶段应返回Buy
     [Fact]
-    public void Test6_DecisionEngine_DecliningBlocked()
+    public void Test6_DecisionEngine_VolumeBreakoutBuy()
     {
         var engine = new DecisionEngine(new RiskConfig());
-        var decliningMainstream = new MainstreamSectorResult(
-            "电力", 40m, 30m, 30m, 40m, 50m, 3, 7, 0, 2,
-            false, false, true, "板块退潮");
 
         var (decision, reason) = engine.DecideEntry(
             BuySignalType.VolumeBreakout, riskScore: 25, Trend.Up,
             aboveWatchPrice: true,
             new CycleResult(MarketCycle.Consensus, "一致"),
             new VolumeResult(VolumeState.ShrinkConsolidate, true, "缩量"),
-            belowMA20: false, macdDead: false, belowStopLoss: false,
-            sectorMainstream: decliningMainstream);
+            belowMA20: false, macdDead: false, belowStopLoss: false);
 
-        Assert.True(decision == Decision.Watch || decision == Decision.Ignore,
-            $"板块退潮时不允许Buy，实际={decision}");
-        Assert.NotNull(reason);
-        Assert.Contains("退潮", reason);
+        Assert.Equal(Decision.Buy, decision);
     }
 
-    // 7. DecisionEngine：板块不在Top10时Buy降级
+    // 7. DecisionEngine：无信号+上升趋势+低风险+突破观察价应返回TryBuy
     [Fact]
-    public void Test7_DecisionEngine_NonMainstreamDowngrade()
+    public void Test7_DecisionEngine_NoSignalTryBuy()
     {
         var engine = new DecisionEngine(new RiskConfig());
-        var coldMainstream = new MainstreamSectorResult(
-            "冷门板块", 45m, 30m, 30m, 40m, 40m, 3, 7, 0, 2,
-            false, false, false, "一般板块");
 
         var (decision, reason) = engine.DecideEntry(
-            BuySignalType.VolumeBreakout, riskScore: 25, Trend.Up,
+            BuySignalType.None, riskScore: 25, Trend.Up,
             aboveWatchPrice: true,
             new CycleResult(MarketCycle.Consensus, "一致"),
             new VolumeResult(VolumeState.ShrinkConsolidate, true, "缩量"),
-            belowMA20: false, macdDead: false, belowStopLoss: false,
-            sectorMainstream: coldMainstream);
+            belowMA20: false, macdDead: false, belowStopLoss: false);
 
-        Assert.True(decision == Decision.Watch || decision == Decision.Ignore,
-            $"非主线板块Buy应降级，实际={decision}");
+        Assert.Equal(Decision.TryBuy, decision);
     }
 
     // 8. HotSectorRotationEngine：识别加强/退潮

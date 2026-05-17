@@ -26,7 +26,8 @@ public class DailyWatchPoolService
 
     public async Task<WatchPoolResult> GenerateAsync(
         List<StockBar>? marketBars,
-        IProgress<(int done, int total, string current)>? progress = null)
+        IProgress<(int done, int total, string current)>? progress = null,
+        CancellationToken ct = default)
     {
         // ── 步骤1：一次性获取全市场快照，本地内存过滤 ────────────
         var snapshot = await _ds.GetMarketSnapshotAsync();
@@ -71,15 +72,20 @@ public class DailyWatchPoolService
             .ToList();
 
         // ── 步骤5：只对候选股请求历史K线并分析 ──────────────────
-        int scanned = 0, failed = 0, filtered = 0, done = 0;
+        int scanned = 0, failed = 0, filtered = 0, matched = 0, done = 0;
+        int totalCount = candidates.Count;
+        var startTime = DateTime.UtcNow;
+        string? currentStock = null;
         var semaphore = new SemaphoreSlim(8);
         var sectorResultMap = top10.ToDictionary(x => x.Item1, x => x.Item2);
 
         var tasks = candidates.Select(async s =>
         {
-            await semaphore.WaitAsync();
+            await semaphore.WaitAsync(ct);
             try
             {
+                ct.ThrowIfCancellationRequested();
+                Interlocked.Exchange(ref currentStock, s.Name);
                 var bars = await _ds.GetHistoryBarsAsync(s.Code, s.Name);
                 Interlocked.Increment(ref done);
                 progress?.Report((done, candidates.Count, s.Name));
@@ -107,9 +113,7 @@ public class DailyWatchPoolService
                 var price = snapItem?.Price > 0 ? snapItem.Price
                     : (await _ds.GetRealtimeQuoteAsync(s.Code))?.Price ?? latestClose;
 
-                // 市值：优先快照
-                var mv = await _ds.GetMarketCapAsync(s.Code);
-                if (mv.HasValue && mv.Value >= 300m) { Interlocked.Increment(ref filtered); return null; }
+                // 市值已在快照过滤阶段完成（TotalMv == 0 或 < 300亿），此处不再重复查询
 
                 var chipLock = signal.ChipControl?.ChipLockScore ?? 0m;
                 var sectorScore = signal.SectorEmotion?.SectorStrengthScore ?? 50m;
@@ -119,6 +123,7 @@ public class DailyWatchPoolService
 
                 if (resonanceScore < 40 && resonance?.IsIndependentPump == true) return null;
 
+                Interlocked.Increment(ref matched);
                 var sectorName = "";
                 var mainstreamResult = sectorResultMap.GetValueOrDefault("全市场");
 
@@ -158,7 +163,8 @@ public class DailyWatchPoolService
 
                 return new WatchPoolItem
                 {
-                    Code = s.Code, Name = s.Name, Price = price, MarketCap = mv,
+                    Code = s.Code, Name = s.Name, Price = price,
+                    MarketCap = snapItem?.TotalMv > 0 ? snapItem.TotalMv / 1_0000_0000m : null,
                     Sector = sectorName,
                     WatchPoolScore = Math.Round(score, 1),
                     SecondWaveProbability = plat.SecondWaveProbability,
@@ -197,12 +203,22 @@ public class DailyWatchPoolService
 
         await UpdateCacheAsync(final, cache);
 
+        var elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
+        var completedRate = totalCount > 0 ? (double)(scanned + failed + filtered) / totalCount : 0;
+        var estimatedRemaining = completedRate > 0.01 ? elapsed / completedRate - elapsed : 0;
+
         var result = new WatchPoolResult
         {
             Items = final,
+            TotalCount = totalCount,
             ScannedCount = scanned,
             FailedCount = failed,
             FilteredCount = filtered,
+            MatchedCount = matched,
+            CurrentStockCode = candidates.Count > 0 ? candidates[0].Code : null,
+            CurrentStockName = currentStock,
+            ElapsedSeconds = Math.Round(elapsed, 1),
+            EstimatedRemainingSeconds = Math.Round(estimatedRemaining, 1),
             Top10Sectors = top10.Select(x => x.Item2).ToList(),
             SectorRotations = rotations,
             DataSourceName = _ds.Status.CurrentSource,

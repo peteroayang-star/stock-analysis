@@ -1,0 +1,62 @@
+<script>
+(function () {
+    var nodes = document.querySelectorAll('[data-rt]');
+    if (!nodes.length) return;
+    var codes = Array.from(nodes).map(n => n.dataset.rt).join(',');
+    var interval = 10, timer;
+
+    function isTradingTime() {
+        var now = new Date(), day = now.getDay();
+        if (day === 0 || day === 6) return false;
+        var mins = now.getHours() * 60 + now.getMinutes();
+        return mins >= 9 * 60 + 15 && mins < 15 * 60;
+    }
+    function fmt(v) { return parseFloat(v).toFixed(2); }
+
+    function refresh() {
+        fetch('/Stock/RealTimeQuotes?codes=' + encodeURIComponent(codes))
+            .then(r => r.json())
+            .then(data => {
+                nodes.forEach(function (el) {
+                    var q = data[el.dataset.rt];
+                    if (!q) return;
+                    var card = el.closest('.terminal-card');
+                    if (card) {
+                        var priceEl = card.querySelector('.price-main');
+                        var pctEl   = card.querySelector('.rt-pct');
+                        if (priceEl) { priceEl.textContent = fmt(q.price); priceEl.className = 'price-main ' + (q.changePct >= 0 ? 'up' : 'down'); }
+                        if (pctEl)   { pctEl.textContent = (q.changePct >= 0 ? '+' : '') + fmt(q.changePct) + '%'; pctEl.className = 'price-pct rt-pct ' + (q.changePct >= 0 ? 'up' : 'down'); }
+                    }
+                    var o = el.querySelector('.rt-open');    if (o) o.textContent = fmt(q.open);
+                    var h = el.querySelector('.rt-high');    if (h) h.textContent = fmt(q.high);
+                    var l = el.querySelector('.rt-low');     if (l) l.textContent = fmt(q.low);
+                    var p = el.querySelector('.rt-preclose');if (p) p.textContent = fmt(q.preClose);
+                });
+                var st = document.getElementById('rt-status');
+                if (st) st.textContent = '已更新 ' + new Date().toLocaleTimeString();
+            });
+    }
+
+    function startCountdown() {
+        var cdEl = document.getElementById('rt-countdown');
+        if (!isTradingTime()) {
+            var st = document.getElementById('rt-status');
+            if (st) st.textContent = '非交易时间';
+            if (cdEl) cdEl.textContent = '--';
+            return;
+        }
+        var left = interval;
+        if (cdEl) cdEl.textContent = left + 's';
+        timer = setInterval(function () {
+            left--;
+            if (cdEl) cdEl.textContent = left + 's';
+            if (left <= 0) { clearInterval(timer); refresh(); startCountdown(); }
+        }, 1000);
+    }
+
+    refresh();
+    startCountdown();
+    var btn = document.getElementById('rt-refresh-btn');
+    if (btn) btn.addEventListener('click', function () { clearInterval(timer); refresh(); startCountdown(); });
+})();
+</script>

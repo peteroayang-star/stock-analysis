@@ -40,7 +40,30 @@
       "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" remote -v)",
       "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" add StockAnalysis.Core/Engines/Backtester.cs StockAnalysis.Core/Engines/IndicatorCalculator.cs StockAnalysis.Core/Engines/StockAnalyzer.cs StockAnalysis.Core/Engines/StockStabilityFilter.cs StockAnalysis.Core/Models/StockSignal.cs StockAnalysis.Web/Controllers/StockController.cs StockAnalysis.Web/Services/FinanceDataService.cs StockAnalysis.Web/Views/Stock/Result.cshtml akshare_server.py)",
       "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" commit -m \"$\\(cat <<''EOF''\nfeat: 信号稳定性过滤、涨停提示、业绩数据优化及bug修复\n\n- 新增 StockStabilityFilter：趋势一致性+波动率+反向波动组合评分，评分<60降级决策\n- 14天内触及涨停改为标签提示，不再过滤股票\n- StockSignal 新增 HadLimitUpIn14Days 字段，Result 页面显示红色标签\n- 修复 IndicatorCalculator/Backtester/StockAnalyzer 索引越界问题（守卫统一为26/28）\n- akshare_server: stock_financial_abstract 缺最新季报时自动用 stock_yjbb_em 补充\n- FinanceDataService: 修复 null 值导致解析异常返回 null 的问题\n- 财务数据列按日期降序排列，确保取最新4期\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" push)"
+      "Bash(git -C \"D:\\\\创作\\\\通达信 + 风险评分系统2.0\" push)",
+      "Bash(grep -E \"\\\\.cs$\")",
+      "Bash(grep -rn \"unicode\\\\|\\\\\\\\\\\\\\\\u[0-9a-f]\\\\|Encoding\\\\|JsonSerializ\\\\|Name.*=\" StockAnalysis.Web/Controllers/StockController.cs)",
+      "Bash(grep -n \"Name\\\\|name\\\\|unicode\\\\|encode\\\\|\\\\\\\\\\\\\\\\u\" StockAnalysis.Web/Services/AkShareDataService.cs)",
+      "Bash(ls \"D:/创新项目/stock-analysis/\"*.bat)",
+      "Bash(dotnet clean:*)",
+      "Bash(dotnet-ildasm StockAnalysis.Web/bin/Debug/net8.0/StockAnalysis.Core.dll)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet list:*)",
+      "Bash(cp \"C:/Users/peter/xwechat_files/wxid_4ytl4fs1hiio22_def8/temp/RWTemp/2026-05/3bd71f09739bd6d49e4d42929ab96f3d/68356fc3c49f5a9dd555ac026c845e43.png\" \"D:/创新项目/stock-analysis/docs/screenshots/快速选股_航天电子.png\")",
+      "Bash(cp \"C:/Users/peter/xwechat_files/wxid_4ytl4fs1hiio22_def8/temp/RWTemp/2026-05/3bd71f09739bd6d49e4d42929ab96f3d/10a9b0d16bb13c75a51663148b0ff4fc.png\" \"D:/创新项目/stock-analysis/docs/screenshots/快速选股_金风科技.png\")",
+      "Bash(git commit:*)",
+      "Bash(grep -n \"SecondWave\\\\|分段\\\\|Segment\\\\|Tier\\\\|Bracket\" StockAnalysis.Web/Views/Backtest/*.cshtml)",
+      "Bash(grep -n \"市值\\\\|MarketCap\\\\|价格\\\\|Price\\\\|ST\\\\|科创\\\\|创业\\\\|北交\\\\|300亿\\\\|30元\" StockAnalysis.Web/Views/Screener/*.cshtml)",
+      "Bash(ls *.sln)",
+      "Bash(cat *.sln)",
+      "Bash(grep -n \"class RealTimeQuote\\\\|MarketCap\\\\|TotalValue\\\\|Price\\\\|CirculatingValue\\\\|class FinanceData\" StockAnalysis.Web/Services/*.cs)",
+      "Bash(dotnet test:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(grep -v \"\\\\\\\\bin\\\\\\\\\")",
+      "Bash(grep -v \"\\\\\\\\obj\\\\\\\\\")",
+      "Bash(xargs wc:*)",
+      "Bash(find . \\\\\\( -name \"*.cs\" -o -name \"*.py\" -o -name \"*.cshtml\" -o -name \"*.json\" -o -name \"*.bat\" \\\\\\) ! -path \"*/node_modules/*\" ! -path \"*/.vs/*\" ! -path \"*/bin/*\" ! -path \"*/obj/*\" ! -path \"*/.git/*\" -exec wc -l {} +)",
+      "Bash(find . \\\\\\( -name \"*.cs\" -o -name \"*.cshtml\" -o -name \"*.py\" \\\\\\) ! -path \"*/bin/*\" ! -path \"*/obj/*\" ! -path \"*/.git/*\" ! -path \"*/.vs/*\" -exec wc -l {} +)"
     ]
   }
 }

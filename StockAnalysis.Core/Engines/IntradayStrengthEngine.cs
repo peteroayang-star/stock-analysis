@@ -39,31 +39,94 @@ public class IntradayStrengthEngine
     {
         int n = bars.Count;
 
-        // 1. 黄线 = VWAP（累计成交额 / 累计成交量）
+        // 1. VWAP + 黄线结构
         var vwap = new decimal[n];
-        decimal cumAmt = 0, cumVol = 0;
-        for (int i = 0; i < n; i++)
-        {
-            cumAmt += bars[i].Close * bars[i].Volume;
-            cumVol += bars[i].Volume;
-            vwap[i] = cumVol > 0 ? cumAmt / cumVol : bars[i].Close;
-        }
+        CalculateVwap(bars, vwap);
 
-        // 2. 全天黄线上方占比
-        int aboveCount = 0;
-        for (int i = 0; i < n; i++) if (bars[i].Close > vwap[i]) aboveCount++;
-        decimal aboveRatio = (decimal)aboveCount / n;
+        decimal aboveRatio = 0;
+        for (int i = 0; i < n; i++) if (bars[i].Close > vwap[i]) aboveRatio++;
+        aboveRatio /= n;
 
         bool structureStrong  = aboveRatio >= 0.65m;
         bool structureNeutral = aboveRatio >= 0.45m && aboveRatio < 0.65m;
         bool structureWeak    = aboveRatio < 0.45m;
 
-        // 3. 黄线斜率（全天 vs 最后30分钟）
         int slopeRef = Math.Max(0, n - 30);
         bool avgRising = vwap[n - 1] > vwap[slopeRef] * 1.001m;
         bool avgFlat   = Math.Abs(vwap[n - 1] - vwap[slopeRef]) / (vwap[slopeRef] + 0.001m) < 0.002m;
 
-        // 4. 分时高低点结构
+        // 2. 高低点结构
+        var (sessionHigh, sessionLow, risingStructure, afternoonHighBreakCount)
+            = AnalyzeHighLowStructure(bars);
+
+        // 3. 上午 vs 下午
+        var (morningRatio, afternoonRatio, afternoonStronger, afternoonNewHigh,
+            afternoonHigherCenter, morningHigh, afternoonHigh)
+            = AnalyzeMorningAfternoon(bars, vwap);
+
+        // 4. 尾盘分析
+        var tail = bars.TakeLast(30).ToList();
+        var (tailRally, tailTrap, highShock, tailNoJump, tailClosePos, tailBigVol, afternoonBigVol)
+            = AnalyzeTail(tail, bars, n, sessionHigh, sessionLow, aboveRatio, structureWeak);
+
+        // 5. 派生指标
+        bool morningHighFailed = morningHigh > afternoonHigh * 1.005m
+                                 && afternoonRatio < 0.5m
+                                 && morningRatio > afternoonRatio + 0.1m;
+
+        bool tailFallBack = tail[0].Open > 0 && tail[^1].Close < tail[0].Open * 0.995m;
+
+        decimal afternoonSlope = CalculateAfternoonVwapSlope(bars, vwap);
+
+        // 6. 阶梯式推升检测
+        bool isStepwiseUp = DetectStepwiseUp(avgRising, risingStructure, afternoonStronger,
+            aboveRatio, tailClosePos, afternoonNewHigh, afternoonBigVol, highShock,
+            tailRally, tailNoJump, afternoonHigherCenter, afternoonHighBreakCount,
+            tailFallBack, structureWeak, tailTrap, morningHighFailed);
+
+        // 7. 健康洗盘
+        bool hasWashout = aboveRatio < 0.65m && aboveRatio >= 0.45m
+                          && risingStructure && tailClosePos > 0.6m;
+        bool isHealthyWashout = hasWashout && !isStepwiseUp && !tailTrap;
+
+        // 8. 危险覆盖
+        bool isDangerZone = tailTrap || (structureWeak && aboveRatio < 0.35m);
+
+        // 9. 评分
+        int score = CalculateIntradayScore(structureStrong, structureNeutral, structureWeak,
+            avgRising, avgFlat, risingStructure, afternoonStronger, tailTrap, highShock,
+            tailClosePos, tailBigVol, isDangerZone, style, aboveRatio, tailNoJump, tailFallBack);
+
+        // 10. 形态 + 等级 + 描述
+        var (pattern, grade, will, desc) = BuildResult(score, style, aboveRatio,
+            structureStrong, structureNeutral, structureWeak, avgRising, risingStructure,
+            afternoonStronger, afternoonRatio, morningRatio, tailTrap, isStepwiseUp,
+            isHealthyWashout, tailClosePos, isDangerZone, morningHighFailed,
+            afternoonHigherCenter, afternoonNewHigh, afternoonBigVol,
+            afternoonHighBreakCount, tailNoJump, tailFallBack);
+
+        return new(score, will, pattern, desc, grade, isDangerZone);
+    }
+
+    // ── 子方法 ────────────────────────────────────────────────────────────
+
+    /// <summary>计算 VWAP（累计成交额 / 累计成交量）序列</summary>
+    private static void CalculateVwap(List<MinuteBar> bars, decimal[] vwap)
+    {
+        decimal cumAmt = 0, cumVol = 0;
+        for (int i = 0; i < bars.Count; i++)
+        {
+            cumAmt += bars[i].Close * bars[i].Volume;
+            cumVol += bars[i].Volume;
+            vwap[i] = cumVol > 0 ? cumAmt / cumVol : bars[i].Close;
+        }
+    }
+
+    /// <summary>分时高低点结构分析：更高高点/更低低点计数、上升结构判断、下午创新高次数</summary>
+    private static (decimal sessionHigh, decimal sessionLow, bool risingStructure, int afternoonHighBreakCount)
+        AnalyzeHighLowStructure(List<MinuteBar> bars)
+    {
+        int n = bars.Count;
         decimal sessionHigh = bars[0].High, sessionLow = bars[0].Low;
         int higherHighs = 0, lowerLows = 0;
         for (int i = 1; i < n; i++)
@@ -73,28 +136,41 @@ public class IntradayStrengthEngine
         }
         bool risingStructure = higherHighs > lowerLows;
 
-        // 5. 上午 vs 下午（13:00 分割）
+        // 下午创新高次数
+        int afternoonHighBreakCount = 0;
+        decimal afRunningHigh = 0;
+        foreach (var b in bars)
+        {
+            if (b.Time.Hour < 13) continue;
+            if (afRunningHigh == 0) { afRunningHigh = b.High; continue; }
+            if (b.High > afRunningHigh) { afternoonHighBreakCount++; afRunningHigh = b.High; }
+        }
+
+        return (sessionHigh, sessionLow, risingStructure, afternoonHighBreakCount);
+    }
+
+    /// <summary>上午 vs 下午对比分析</summary>
+    private static (decimal morningRatio, decimal afternoonRatio, bool afternoonStronger,
+        bool afternoonNewHigh, bool afternoonHigherCenter, decimal morningHigh, decimal afternoonHigh)
+        AnalyzeMorningAfternoon(List<MinuteBar> bars, decimal[] vwap)
+    {
+        int n = bars.Count;
+
         var morning   = bars.Where(b => b.Time.Hour < 13).ToList();
         var afternoon = bars.Where(b => b.Time.Hour >= 13).ToList();
 
-        decimal MorningAbove() {
-            if (morning.Count == 0) return 0.5m;
-            int idx0 = 0; // vwap index offset
-            int above = 0;
-            for (int i = 0; i < n && bars[i].Time.Hour < 13; i++)
-                if (bars[i].Close > vwap[i]) above++;
-            return (decimal)above / morning.Count;
-        }
-        decimal AfternoonAbove() {
-            if (afternoon.Count == 0) return 0.5m;
-            int above = 0, total = 0;
-            for (int i = 0; i < n; i++)
-                if (bars[i].Time.Hour >= 13) { if (bars[i].Close > vwap[i]) above++; total++; }
-            return total > 0 ? (decimal)above / total : 0.5m;
-        }
+        // 上午黄线上方占比
+        int aboveCnt = 0, morningCnt = 0;
+        for (int i = 0; i < n && bars[i].Time.Hour < 13; i++)
+        { morningCnt++; if (bars[i].Close > vwap[i]) aboveCnt++; }
+        decimal morningRatio = morningCnt > 0 ? (decimal)aboveCnt / morningCnt : 0.5m;
 
-        decimal morningRatio   = MorningAbove();
-        decimal afternoonRatio = AfternoonAbove();
+        // 下午黄线上方占比
+        aboveCnt = 0; int afternoonCnt = 0;
+        for (int i = 0; i < n; i++)
+            if (bars[i].Time.Hour >= 13) { afternoonCnt++; if (bars[i].Close > vwap[i]) aboveCnt++; }
+        decimal afternoonRatio = afternoonCnt > 0 ? (decimal)aboveCnt / afternoonCnt : 0.5m;
+
         bool afternoonStronger = afternoonRatio > morningRatio + 0.05m;
 
         decimal afternoonHigh = afternoon.Count > 0 ? afternoon.Max(b => b.High) : 0;
@@ -105,110 +181,93 @@ public class IntradayStrengthEngine
         decimal morningAvgClose   = morning.Count   > 0 ? morning.Average(b => b.Close)   : 0;
         bool afternoonHigherCenter = afternoonAvgClose > morningAvgClose * 1.002m;
 
-        // 6. 尾盘30分钟
-        var tail = bars.TakeLast(30).ToList();
+        return (morningRatio, afternoonRatio, afternoonStronger,
+            afternoonNewHigh, afternoonHigherCenter, morningHigh, afternoonHigh);
+    }
+
+    /// <summary>尾盘30分钟分析：急拉/诱多/横盘/跳水/量能</summary>
+    private static (bool tailRally, bool tailTrap, bool highShock, bool tailNoJump,
+        decimal tailClosePos, bool tailBigVol, bool afternoonBigVol)
+        AnalyzeTail(List<MinuteBar> tail, List<MinuteBar> bars, int n,
+            decimal sessionHigh, decimal sessionLow, decimal aboveRatio, bool structureWeak)
+    {
         decimal tailOpen  = tail[0].Open;
         decimal tailClose = tail[^1].Close;
         decimal fullRange = sessionHigh - sessionLow;
         decimal tailClosePos = fullRange > 0 ? (tailClose - sessionLow) / fullRange : 0.5m;
 
         bool tailRally  = tailOpen > 0 && (tailClose - tailOpen) / tailOpen > 0.015m;
-        // 真正诱多：全天弱势 + 尾盘急拉幅度大 + 拉升前长时间压在均线下
         bool tailTrap   = tailRally && structureWeak && aboveRatio < 0.40m
                           && (tailClose - tailOpen) / tailOpen > 0.025m;
         bool highShock  = tailClosePos > 0.75m && tailOpen > 0
                           && Math.Abs(tailClose - tailOpen) / tailOpen < 0.005m;
-        bool tailNoJump = tailOpen > 0 && (tailClose - tailOpen) / tailOpen > -0.005m; // 尾盘未跳水
+        bool tailNoJump = tailOpen > 0 && (tailClose - tailOpen) / tailOpen > -0.005m;
 
-        // 7. 量能
+        // 尾盘量能
         long totalVol = bars.Sum(b => b.Volume);
         long tailVol  = tail.Sum(b => b.Volume);
-        long afVol    = afternoon.Sum(b => b.Volume);
-        long amVol    = morning.Sum(b => b.Volume);
-        bool tailBigVol      = n > 30 && tailVol > (totalVol - tailVol) / (n - 30) * 30 * 1.5m;
+        bool tailBigVol = n > 30 && tailVol > (totalVol - tailVol) / (n - 30) * 30 * 1.5m;
+
+        // 下午量能
+        var afternoon = bars.Where(b => b.Time.Hour >= 13).ToList();
+        var morning   = bars.Where(b => b.Time.Hour < 13).ToList();
+        long afVol = afternoon.Sum(b => b.Volume);
+        long amVol = morning.Sum(b => b.Volume);
         bool afternoonBigVol = afternoon.Count > 0 && amVol > 0 && afVol > amVol * 1.2m;
 
-        // 8. 新增指标计算
-        // 分时低点抬高评分
-        int lowPointRisingScore = 0;
-        for (int i = 1; i < n; i++)
-            if (bars[i].Low > bars[i - 1].Low) lowPointRisingScore++;
+        return (tailRally, tailTrap, highShock, tailNoJump, tailClosePos, tailBigVol, afternoonBigVol);
+    }
 
-        // 分时高点抬高评分
-        int highPointRisingScore = 0;
-        for (int i = 1; i < n; i++)
-            if (bars[i].High > bars[i - 1].High) highPointRisingScore++;
-
-        // 下午创新高次数
-        int afternoonHighBreakCount = 0;
-        decimal afRunningHigh = 0;
-        foreach (var b in afternoon)
-        {
-            if (afRunningHigh == 0) { afRunningHigh = b.High; continue; }
-            if (b.High > afRunningHigh) { afternoonHighBreakCount++; afRunningHigh = b.High; }
-        }
-
-        // 下午最低点 > 上午最低点
-        decimal morningLow = morning.Count > 0 ? morning.Min(b => b.Low) : 0;
-        decimal afternoonLow = afternoon.Count > 0 ? afternoon.Min(b => b.Low) : 0;
-        bool afternoonLowHigherThanMorning = morningLow > 0 && afternoonLow > morningLow;
-
-        // 尾盘回落
-        bool tailFallBack = tailOpen > 0 && tailClose < tailOpen * 0.995m;
-
-        // 下午VWAP斜率
-        decimal afternoonSlope = 0m;
+    /// <summary>下午 VWAP 斜率</summary>
+    private static decimal CalculateAfternoonVwapSlope(List<MinuteBar> bars, decimal[] vwap)
+    {
         var afVwapBars = bars.Select((b, i) => (b, i)).Where(x => x.b.Time.Hour >= 13).ToList();
-        if (afVwapBars.Count >= 2)
-        {
-            decimal afFirstVwap = vwap[afVwapBars[0].i];
-            decimal afLastVwap  = vwap[afVwapBars[^1].i];
-            afternoonSlope = afFirstVwap > 0 ? (afLastVwap - afFirstVwap) / afFirstVwap : 0m;
-        }
+        if (afVwapBars.Count < 2) return 0m;
+        decimal afFirstVwap = vwap[afVwapBars[0].i];
+        decimal afLastVwap  = vwap[afVwapBars[^1].i];
+        return afFirstVwap > 0 ? (afLastVwap - afFirstVwap) / afFirstVwap : 0m;
+    }
 
-        // 修复震荡评分
-        bool repairScore = morningRatio > afternoonRatio + 0.1m;
-
-        // 上午冲高失败检测
-        bool morningHighFailed = morningHigh > afternoonHigh * 1.005m
-                                 && afternoonRatio < 0.5m
-                                 && morningRatio > afternoonRatio + 0.1m;
-
-        // 阶梯式推升检测
+    /// <summary>阶梯式推升检测：9个条件打分，≥7满足视为阶梯推升</summary>
+    private static bool DetectStepwiseUp(
+        bool avgRising, bool risingStructure, bool afternoonStronger,
+        decimal aboveRatio, decimal tailClosePos, bool afternoonNewHigh,
+        bool afternoonBigVol, bool highShock, bool tailRally,
+        bool tailNoJump, bool afternoonHigherCenter, int afternoonHighBreakCount,
+        bool tailFallBack, bool structureWeak, bool tailTrap, bool morningHighFailed)
+    {
         int stepCount = 0;
-        if (avgRising)             stepCount++; // 1. 黄线缓慢上移（核心）
-        if (risingStructure)       stepCount++; // 2. 低点持续抬高
-        if (afternoonStronger)     stepCount++; // 3. 下午强于上午（核心）
-        if (aboveRatio >= 0.55m)   stepCount++; // 4. 大部分时间在黄线上方（放宽到55%）
-        if (tailClosePos >= 0.75m) stepCount++; // 5. 收盘位于振幅75%以上
-        if (afternoonNewHigh)      stepCount++; // 6. 下午创新高
-        if (afternoonBigVol)       stepCount++; // 7. 下午放量
-        if (highShock || (tailClosePos > 0.75m && !tailRally)) stepCount++; // 8. 尾盘横住
-        if (tailNoJump)            stepCount++; // 9. 尾盘未跳水
-        if (afternoonHigherCenter) stepCount++; // 10. 下午价格中枢高于上午
+        if (avgRising)             stepCount++;
+        if (risingStructure)       stepCount++;
+        if (afternoonStronger)     stepCount++;
+        if (aboveRatio >= 0.55m)   stepCount++;
+        if (tailClosePos >= 0.75m) stepCount++;
+        if (afternoonNewHigh)      stepCount++;
+        if (afternoonBigVol)       stepCount++;
+        if (highShock || (tailClosePos > 0.75m && !tailRally)) stepCount++;
+        if (tailNoJump)            stepCount++;
+        if (afternoonHigherCenter) stepCount++;
 
-        // A 阶梯推升必须同时满足7个条件
-        bool isStepwiseUp = stepCount >= 4
-            && avgRising                          // 条件2：黄线上移
-            && afternoonStronger                  // 条件1：下午强于上午
-            && afternoonHighBreakCount >= 2       // 条件3：下午至少2次新高
-            && tailClosePos >= 0.75m              // 条件5：收盘接近高点
-            && afternoonHigherCenter              // 条件6：下午中枢高于上午
-            && !tailFallBack                      // 条件7：尾盘无回落
+        return stepCount >= 4
+            && avgRising
+            && afternoonStronger
+            && afternoonHighBreakCount >= 2
+            && tailClosePos >= 0.75m
+            && afternoonHigherCenter
+            && !tailFallBack
             && !structureWeak
             && !tailTrap
-            && !morningHighFailed;               // 硬规则：上午冲高失败禁止
+            && !morningHighFailed;
+    }
 
-        // 9. 健康洗盘：必须有明显回踩+快速修复，禁止用于阶梯推升
-        bool hasWashout = aboveRatio < 0.65m && aboveRatio >= 0.45m  // 有时间在黄线下方
-                          && risingStructure                           // 但低点仍在抬高
-                          && tailClosePos > 0.6m;                     // 最终收回高位
-        bool isHealthyWashout = hasWashout && !isStepwiseUp && !tailTrap;
-
-        // 10. 危险覆盖：只有真正诱多才触发，结构偏弱不等于危险
-        bool isDangerZone = tailTrap || (structureWeak && aboveRatio < 0.35m);
-
-        // 11. 评分
+    /// <summary>计算日内强度评分（0-100），含票型适配</summary>
+    private static int CalculateIntradayScore(
+        bool structureStrong, bool structureNeutral, bool structureWeak,
+        bool avgRising, bool avgFlat, bool risingStructure, bool afternoonStronger,
+        bool tailTrap, bool highShock, decimal tailClosePos, bool tailBigVol,
+        bool isDangerZone, StockStyle style, decimal aboveRatio,
+        bool tailNoJump, bool tailFallBack)
+    {
         int score = 0;
         if (structureStrong)       score += 30;
         else if (structureNeutral) score += 15;
@@ -225,30 +284,41 @@ public class IntradayStrengthEngine
         else if (structureWeak) score = Math.Min(score, 60);
         score = Math.Max(0, Math.Min(100, score));
 
-        // 票型适配：趋势机构型/中军容量型用宽松标准，不要求暴力拉升
-        // 趋势票正常表现：台阶震荡、回踩均线、尾盘整理，不应被判为弱
+        // 票型适配：趋势机构型/中军容量型用宽松标准
         if (!isDangerZone && style is StockStyle.TrendInstitutional or StockStyle.LargeCapVolume)
         {
-            // 核心条件：长时间运行均线上方 + 尾盘未跳水 + 重心抬高 → 趋势偏强，55~70
             if (aboveRatio >= 0.60m && tailNoJump && risingStructure && !tailFallBack)
                 score = Math.Max(score, 62);
             else if (aboveRatio >= 0.55m && tailNoJump && risingStructure)
                 score = Math.Max(score, 55);
-            // 结构中性但尾盘稳住 → 至少45，不能判弱
             else if (structureNeutral && tailNoJump && !tailFallBack)
                 score = Math.Max(score, 48);
             else if (structureNeutral && tailNoJump)
                 score = Math.Max(score, 42);
         }
 
-        // 12. 形态（优先级：TailTrap > StepwiseUp > MainUpTrend > HealthyWashout > WeakRecovery）
-        // 修复震荡：上午冲高失败后下午修复
+        return score;
+    }
+
+    /// <summary>形态分类 + 进攻等级 + 意愿 + 描述文字</summary>
+    private static (IntradayPattern pattern, AttackGrade grade, AttackWill will, string desc)
+        BuildResult(int score, StockStyle style, decimal aboveRatio,
+            bool structureStrong, bool structureNeutral, bool structureWeak,
+            bool avgRising, bool risingStructure, bool afternoonStronger,
+            decimal afternoonRatio, decimal morningRatio, bool tailTrap,
+            bool isStepwiseUp, bool isHealthyWashout, decimal tailClosePos,
+            bool isDangerZone, bool morningHighFailed, bool afternoonHigherCenter,
+            bool afternoonNewHigh, bool afternoonBigVol, int afternoonHighBreakCount,
+            bool tailNoJump, bool tailFallBack)
+    {
+        // 修复震荡判断
         bool isRepairPattern = morningHighFailed || (morningRatio > afternoonRatio + 0.1m && !structureStrong);
 
-        // 趋势震荡偏强：结构中性但重心抬高，不是诱多
+        // 趋势震荡偏强
         bool isTrendShock = structureNeutral && risingStructure && !tailTrap
                          && tailClosePos > 0.5m && !morningHighFailed;
 
+        // 形态分类
         IntradayPattern pattern;
         if (tailTrap)
             pattern = IntradayPattern.TailTrap;
@@ -265,17 +335,19 @@ public class IntradayStrengthEngine
         else
             pattern = IntradayPattern.WeakRecovery;
 
-        // 13. 等级
+        // 进攻等级
         AttackGrade grade = (tailTrap || isDangerZone) ? AttackGrade.C
             : morningHighFailed ? AttackGrade.B
             : pattern == IntradayPattern.MainUpTrend && tailClosePos > 0.8m ? AttackGrade.S
             : pattern == IntradayPattern.MainUpTrend || pattern == IntradayPattern.StepwiseUp ? AttackGrade.A
             : pattern == IntradayPattern.HealthyWashout || pattern == IntradayPattern.TrendShock ? AttackGrade.B
-            : structureNeutral ? AttackGrade.B   // 中性结构最低给B，不能是C
+            : structureNeutral ? AttackGrade.B
             : AttackGrade.C;
 
+        // 进攻意愿
         AttackWill will = score >= 65 ? AttackWill.Strong : score >= 40 ? AttackWill.Medium : AttackWill.Weak;
 
+        // 描述文字
         string pct = $"{aboveRatio:P0}";
         string desc = pattern switch
         {
@@ -290,51 +362,7 @@ public class IntradayStrengthEngine
             _                              => ""
         };
 
-        Console.WriteLine("==================================================");
-        Console.WriteLine("【基础分时数据】");
-        Console.WriteLine("==================================================");
-        Console.WriteLine($"1. minuteBars.Count = {n}");
-        Console.WriteLine($"2. firstMinuteTime = {bars[0].Time}");
-        Console.WriteLine($"3. lastMinuteTime = {bars[n - 1].Time}");
-        Console.WriteLine($"4. usingRealMinuteData = true");
-        Console.WriteLine("==================================================");
-        Console.WriteLine("【黄线结构】");
-        Console.WriteLine("==================================================");
-        Console.WriteLine($"5. aboveAvgRatio = {aboveRatio:F4}");
-        Console.WriteLine($"6. morningAboveAvgRatio = {morningRatio:F4}");
-        Console.WriteLine($"7. afternoonAboveAvgRatio = {afternoonRatio:F4}");
-        Console.WriteLine($"8. avgSlope (avgRising) = {avgRising}  vwap[0]={vwap[0]:F3} vwap[n-1]={vwap[n - 1]:F3}");
-        Console.WriteLine($"9. afternoonSlope = {afternoonSlope:F4}  (下午vwap末-下午vwap首)/下午vwap首");
-        Console.WriteLine("==================================================");
-        Console.WriteLine("【高低点结构】");
-        Console.WriteLine("==================================================");
-        Console.WriteLine($"10. lowPointRisingScore = {lowPointRisingScore}");
-        Console.WriteLine($"11. highPointRisingScore = {highPointRisingScore}");
-        Console.WriteLine($"12. afternoonHighBreakCount = {afternoonHighBreakCount}");
-        Console.WriteLine($"13. afternoonLowHigherThanMorning = {afternoonLowHigherThanMorning}");
-        Console.WriteLine("==================================================");
-        Console.WriteLine("【尾盘结构】");
-        Console.WriteLine("==================================================");
-        Console.WriteLine($"14. closePosition = {tailClosePos:F4}");
-        Console.WriteLine($"15. tailPullUpScore = {tailRally}");
-        Console.WriteLine($"16. tailFallBackScore = {tailFallBack}");
-        Console.WriteLine($"17. tailHighHoldScore = {highShock}");
-        Console.WriteLine("==================================================");
-        Console.WriteLine("【形态评分】");
-        Console.WriteLine("==================================================");
-        Console.WriteLine($"18. stepUpScore = {stepCount}  isStepwiseUp={isStepwiseUp}");
-        Console.WriteLine($"19. tailTrapScore = {tailTrap}");
-        Console.WriteLine($"20. washScore = {isHealthyWashout}");
-        Console.WriteLine($"21. repairScore = {repairScore}");
-        Console.WriteLine("==================================================");
-        Console.WriteLine("【最终分类】");
-        Console.WriteLine("==================================================");
-        Console.WriteLine($"22. structureType = {pattern}");
-        Console.WriteLine($"23. attackGrade = {grade}");
-        Console.WriteLine($"24. finalReason = {desc}");
-        Console.WriteLine("==================================================");
-
-        return new(score, will, pattern, desc, grade, isDangerZone);
+        return (pattern, grade, will, desc);
     }
 
     // ── 无分时数据时的中性结果 ────────────────────────────────────────────
@@ -425,7 +453,6 @@ public class IntradayStrengthEngine
         else if (structureWeak) score = Math.Min(score, 60);
         score = Math.Max(0, Math.Min(100, score));
 
-        // 低开高走+收盘高位 = 阶梯推升（优先于健康洗盘）
         bool legacyStepwise = !openAbovePrev && closeAboveOpen && closePos > 0.75m && ma5Rising && !tailTrap;
 
         IntradayPattern pattern;

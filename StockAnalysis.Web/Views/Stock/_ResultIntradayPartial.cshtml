@@ -1,0 +1,72 @@
+@model StockAnalysis.Web.Models.SignalWithSuggestion
+@using StockAnalysis.Core.Models
+@{
+    var s = Model.Signal;
+}
+
+@* 分时主动资金强度 *@
+@if (s.IntradayStrengthScore > 0)
+{
+    var intradayColor = s.IntradayStrengthScore >= 65 ? "#10B981"
+        : s.IntradayStrengthScore >= 40 ? "#F59E0B" : "#EF4444";
+    var willColor = s.AttackWillDescription == "强" ? "#10B981"
+        : s.AttackWillDescription == "中" ? "#F59E0B" : "#EF4444";
+    var gradeColor = s.AttackGrade == AttackGrade.S ? "#10B981"
+        : s.AttackGrade == AttackGrade.A ? "#60A5FA"
+        : s.AttackGrade == AttackGrade.B ? "#F59E0B" : "#EF4444";
+    var gradeLabel = s.AttackGrade switch {
+        AttackGrade.S => "S 主升抢筹",
+        AttackGrade.A => s.IntradayPatternType == IntradayPattern.StepwiseUp ? "A 阶梯推升" : "A 强势承接",
+        AttackGrade.B => s.IntradayPatternType == IntradayPattern.TrendShock ? "B+ 趋势震荡偏强" : "B 修复震荡",
+        _             => "C 尾盘诱多"
+    };
+    <div class="l3-block" style="grid-column: 1 / -1; background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+        <div class="l3-title" style="color:#60A5FA">分时主动资金强度</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-top:8px;flex-wrap:wrap">
+            <div>
+                <span style="color:#9CA3AF;font-size:11px">强度评分</span>
+                <div style="font-size:22px;font-weight:700;color:@intradayColor">@s.IntradayStrengthScore</div>
+            </div>
+            <div>
+                <span style="color:#9CA3AF;font-size:11px">进攻等级</span>
+                <div style="font-size:16px;font-weight:700;color:@gradeColor">@gradeLabel</div>
+            </div>
+            <div>
+                <span style="color:#9CA3AF;font-size:11px">进攻意愿</span>
+                <div style="font-size:16px;font-weight:600;color:@willColor">@s.AttackWillDescription</div>
+            </div>
+            <div>
+                <span style="color:#9CA3AF;font-size:11px">形态判断</span>
+                <div style="font-size:13px;color:#E5E7EB;margin-top:2px">@s.IntradayPattern</div>
+            </div>
+            @if (!s.IntradayDangerZone && s.NextDayLimitUpScore > 0)
+            {
+                var limitColor = s.NextDayLimitUpScore >= 60 ? "#10B981"
+                    : s.NextDayLimitUpScore >= 35 ? "#F59E0B" : "#9CA3AF";
+                <div>
+                    <span style="color:#9CA3AF;font-size:11px">次日涨停潜力</span>
+                    <div style="font-size:16px;font-weight:600;color:@limitColor">@s.NextDayLimitUpScore</div>
+                </div>
+            }
+        </div>
+        <div style="margin-top:8px;background:#111827;border-radius:3px;height:6px;overflow:hidden">
+            <div style="width:@(s.IntradayStrengthScore)%;height:100%;background:@intradayColor;transition:width .3s"></div>
+        </div>
+        @if (s.IntradayPatternType == IntradayPattern.TailTrap || s.IntradayDangerZone)
+        {
+            <div style="margin-top:12px;padding:10px 14px;background:#450a0a;border:2px solid #dc2626;border-radius:4px">
+                <span style="color:#ef4444;font-size:16px;font-weight:700;letter-spacing:1px">⚠ 危险：存在尾盘修复/诱多风险，不建议追高</span>
+            </div>
+        }
+        @* 短弱长强桥接说明 *@
+        @if (s.IntradayStrengthScore < 40 && !s.IntradayDangerZone && s.MainForceBehavior != null
+             && s.MainForceBehavior.Stage is MarketStage.WashoutDip or MarketStage.TrendRelay
+                                          or MarketStage.LaunchTest or MarketStage.MainUpAccel)
+        {
+            <div style="margin-top:10px;padding:8px 12px;background:#1e2a1e;border-left:3px solid #4ade80;border-radius:3px">
+                <span style="color:#86efac;font-size:12px;font-weight:600">短弱长强</span>
+                <span style="color:#9CA3AF;font-size:12px;margin-left:8px">当日分时偏弱属正常波动，日K趋势结构未破坏，两者不矛盾。</span>
+            </div>
+        }
+    </div>
+}

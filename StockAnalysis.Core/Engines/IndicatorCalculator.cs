@@ -47,8 +47,7 @@ public class IndicatorCalculator
         var ema12 = CalcEma(bars, index, 12);
         var ema26 = CalcEma(bars, index, 26);
         var dif = ema12 - ema26;
-        var prevDif = CalcEma(bars, index - 1, 12) - CalcEma(bars, index - 1, 26);
-        var dea = dif * (2m / 10) + prevDif * (8m / 10); // 简化DEA
+        var dea = CalcDea(bars, index);          // 标准 EMA(DIF, 9)
         var macd = (dif - dea) * 2;
 
         return new Indicators(ma(5), ma(10), ma(20), volMa(5), volMa(10),
@@ -62,5 +61,28 @@ public class IndicatorCalculator
         for (int i = index - period + 2; i <= index; i++)
             ema = bars[i].Close * k + ema * (1 - k);
         return ema;
+    }
+
+    /// <summary>计算 DEA = EMA(DIF, 9)，标准 MACD 公式</summary>
+    private static decimal CalcDea(List<StockBar> bars, int index)
+    {
+        const int period = 9;
+        int start = index - period + 1;
+        var k = 2m / (period + 1);
+
+        // 初始 DEA = 第一根 bar 的 DIF
+        var ema12 = CalcEma(bars, start, 12);
+        var ema26 = CalcEma(bars, start, 26);
+        var dea = ema12 - ema26;
+
+        // 对后续每根 bar 计算 DIF，递归更新 DEA
+        for (int i = start + 1; i <= index; i++)
+        {
+            ema12 = CalcEma(bars, i, 12);
+            ema26 = CalcEma(bars, i, 26);
+            var dif = ema12 - ema26;
+            dea = dif * k + dea * (1 - k);
+        }
+        return dea;
     }
 }

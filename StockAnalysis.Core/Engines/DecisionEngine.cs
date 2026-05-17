@@ -17,27 +17,8 @@ public class DecisionEngine
         DragonTigerBehaviorResult? dragonTiger = null,
         SectorEmotionResult? sectorEmotion = null,
         ChipControlResult? chipControl = null,
-        SectorResonanceResult? sectorResonance = null,
-        MainstreamSectorResult? sectorMainstream = null)
+        SectorResonanceResult? sectorResonance = null)
     {
-        // ── 板块主线过滤（优先于其他规则）──────────────────────
-        if (sectorMainstream != null)
-        {
-            if (sectorMainstream.IsDeclining)
-                return signal != BuySignalType.None
-                    ? (Decision.Watch, "板块正在退潮，禁止买入")
-                    : (Decision.Ignore, "板块正在退潮，无信号");
-
-            if (!sectorMainstream.IsHotSector)
-            {
-                if (signal != BuySignalType.None)
-                    return (Decision.Watch, "板块不在主线Top10，Buy降级为Watch");
-                if (trend == Trend.Up)
-                    return (Decision.Ignore, "板块不在主线Top10，TryBuy降级为Ignore");
-            }
-        }
-        // ────────────────────────────────────────────────────
-
         // ── 最高优先级强制规则 ──────────────────────────────
         if (belowStopLoss)
             return (Decision.Ignore, "当前价≤止损位，强制空仓");

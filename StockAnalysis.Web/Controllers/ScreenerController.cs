@@ -12,16 +12,19 @@ public class ScreenerController : Controller
     private readonly MarketDataService _marketData;
     private readonly TencentRealTimeService _realTime;
     private readonly AkShareDataService _akShare;
+    private readonly MarketIndexService _marketIndex;
     private readonly RiskReasonAnalyzer _reasoner = new();
     private readonly DragonScreener _dragon = new();
 
     public ScreenerController(StockAnalyzer analyzer, MarketDataService marketData,
-        TencentRealTimeService realTime, AkShareDataService akShare)
+        TencentRealTimeService realTime, AkShareDataService akShare,
+        MarketIndexService marketIndex)
     {
         _analyzer = analyzer;
         _marketData = marketData;
         _realTime = realTime;
         _akShare = akShare;
+        _marketIndex = marketIndex;
     }
 
     private static readonly List<string> HotSectors =
@@ -49,8 +52,7 @@ public class ScreenerController : Controller
         if (stocks == null || stocks.Count == 0)
         { ModelState.AddModelError("", "未能获取板块成分股"); return View(); }
 
-        List<StockBar>? marketBars = null;
-        try { (marketBars, _) = await _marketData.TryGetBarsAsync("000001"); } catch { }
+        List<StockBar>? marketBars = await _marketIndex.GetMarketBarsAsync();
 
         var items = new List<ScreenerResultItem>();
         var semaphore = new SemaphoreSlim(5);

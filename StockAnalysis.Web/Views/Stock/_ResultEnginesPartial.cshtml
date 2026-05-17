@@ -1,0 +1,214 @@
+@model StockAnalysis.Web.Models.SignalWithSuggestion
+@using StockAnalysis.Core.Models
+@using StockAnalysis.Core.Engines
+@{
+    var s = Model.Signal;
+}
+
+@* 主力行为识别 *@
+@if (s.MainForceBehavior != null)
+{
+    var mf = s.MainForceBehavior;
+    string ProbColor(int v) => v >= 60 ? "#10B981" : v >= 35 ? "#F59E0B" : "#9CA3AF";
+    string DistColor(int v)  => v >= 50 ? "#EF4444" : v >= 30 ? "#F59E0B" : "#9CA3AF";
+    string StageLabel(MarketStage st) => st switch {
+        MarketStage.Accumulation  => "底部吸筹期",
+        MarketStage.LaunchTest    => "启动试盘期",
+        MarketStage.WashoutDip    => "分歧洗筹期",
+        MarketStage.TrendRelay    => "趋势中继期",
+        MarketStage.MainUpAccel   => "主升加速期",
+        MarketStage.TopDistribute => "高位派发期",
+        MarketStage.Exhaustion    => "退潮衰竭期",
+        _ => ""
+    };
+    string StageColor(MarketStage st) => st switch {
+        MarketStage.MainUpAccel   => "#10B981",
+        MarketStage.TrendRelay or MarketStage.WashoutDip or MarketStage.LaunchTest => "#60A5FA",
+        MarketStage.TopDistribute or MarketStage.Exhaustion => "#EF4444",
+        _ => "#9CA3AF"
+    };
+    <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+        <div style="display:flex;align-items:center;gap:10px">
+            <div class="l3-title" style="color:#A78BFA">主力行为识别</div>
+            <span style="padding:2px 10px;border-radius:3px;font-size:13px;font-weight:700;background:rgba(255,255,255,.07);color:@StageColor(mf.Stage)">@StageLabel(mf.Stage)</span>
+        </div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+            @foreach (var (label, val, color) in new[]{
+                ("洗盘概率",    mf.WashProbability,         ProbColor(mf.WashProbability)),
+                ("出货概率",    mf.DistributionProbability, DistColor(mf.DistributionProbability)),
+                ("主升预备",    mf.BreakoutProbability,     ProbColor(mf.BreakoutProbability)),
+                ("趋势健康度",  mf.TrendHealthScore,        ProbColor(mf.TrendHealthScore)),
+                ("控盘强度",    mf.ControlStrength,         ProbColor(mf.ControlStrength)),
+                ("筹码锁定度",  mf.LockupScore,             ProbColor(mf.LockupScore))
+            })
+            {
+                <div style="min-width:80px">
+                    <div style="color:#9CA3AF;font-size:11px">@label</div>
+                    <div style="font-size:20px;font-weight:700;color:@color">@val</div>
+                    <div style="background:#111827;border-radius:3px;height:4px;margin-top:4px;overflow:hidden">
+                        <div style="width:@(val)%;height:100%;background:@color"></div>
+                    </div>
+                </div>
+            }
+        </div>
+        @if (mf.BehaviorTags.Any())
+        {
+            <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+                @foreach (var tag in mf.BehaviorTags)
+                {
+                    var tagColor = tag.Contains("出货") || tag.Contains("破位") || tag.Contains("滞涨") || tag.Contains("长阴")
+                        ? "#450a0a;color:#f87171" : "rgba(167,139,250,.15);color:#A78BFA";
+                    <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:@tagColor">@tag</span>
+                }
+            </div>
+        }
+        <div style="margin-top:10px;color:#D1D5DB;font-size:13px;line-height:1.7;background:#111827;padding:10px;border-radius:4px">
+            @mf.Analysis
+        </div>
+    </div>
+}
+
+@* 主升平台结构 *@
+@if (s.MainUpPlatform != null)
+{
+    var plat = s.MainUpPlatform;
+    string LockColor(decimal v) => v >= 70 ? "#2d6a4f" : v >= 50 ? "#e9c46a" : "#9CA3AF";
+    string ProbColor2(decimal v) => v >= 65 ? "#2d6a4f" : v >= 50 ? "#e9c46a" : "#9CA3AF";
+    <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+        <div class="l3-title" style="color:#34d399">主升平台结构</div>
+        @if (plat.IsMainUpPlatform)
+        {
+            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+                <div><div style="color:#9CA3AF;font-size:11px">平台天数</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@plat.PlatformDays 天</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">平台振幅</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@(plat.PlatformRangePercent.ToString("P1"))</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">锁仓强度</div><div style="font-size:20px;font-weight:700;color:@LockColor(plat.LockPositionStrength)">@plat.LockPositionStrength.ToString("F0")</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">二波概率</div><div style="font-size:20px;font-weight:700;color:@ProbColor2(plat.SecondWaveProbability)">@plat.SecondWaveProbability.ToString("F0")%</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">突破准备度</div><div style="font-size:20px;font-weight:700;color:@ProbColor2(plat.BreakoutReadyScore)">@plat.BreakoutReadyScore.ToString("F0")</div></div>
+            </div>
+            @if (plat.Tags.Any())
+            {
+                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+                    @foreach (var tag in plat.Tags)
+                    { <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:rgba(52,211,153,.15);color:#34d399">@tag</span> }
+                </div>
+            }
+        }
+        <div style="margin-top:10px;color:#D1D5DB;font-size:13px;background:#111827;padding:10px;border-radius:4px">@plat.Summary</div>
+    </div>
+}
+
+@* 龙虎榜行为 *@
+@if (s.DragonTiger != null)
+{
+    var dt = s.DragonTiger;
+    <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+        <div class="l3-title" style="color:#f59e0b">龙虎榜行为</div>
+        @if (dt.IsOnDragonTigerList)
+        {
+            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+                <div><div style="color:#9CA3AF;font-size:11px">近10日上榜</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@dt.ListedDaysIn10 次</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">游资接力</div><div style="font-size:20px;font-weight:700;color:@(dt.RelayStrength>=70?"#2d6a4f":dt.RelayStrength>=50?"#e9c46a":"#9CA3AF")">@dt.RelayStrength.ToString("F0")</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">机构参与</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@(dt.InstitutionBuyRatio.ToString("P0"))</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">一日游风险</div><div style="font-size:16px;font-weight:700;color:@(dt.IsOneDayTour?"#e76f51":"#2d6a4f")">@(dt.IsOneDayTour?"是":"否")</div></div>
+                <div><div style="color:#9CA3AF;font-size:11px">锁仓特征</div><div style="font-size:16px;font-weight:700;color:@(dt.IsLockPosition?"#2d6a4f":"#9CA3AF")">@(dt.IsLockPosition?"是":"否")</div></div>
+            </div>
+            @if (dt.Tags.Any())
+            {
+                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+                    @foreach (var tag in dt.Tags)
+                    { <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:rgba(245,158,11,.15);color:#f59e0b">@tag</span> }
+                </div>
+            }
+        }
+        else
+        {
+            <div style="margin-top:8px;color:#6B7280;font-size:13px">暂无龙虎榜数据</div>
+        }
+        <div style="margin-top:10px;color:#D1D5DB;font-size:13px;background:#111827;padding:10px;border-radius:4px">@dt.Summary</div>
+    </div>
+}
+
+@* 板块情绪 *@
+@if (s.SectorEmotion != null)
+{
+    var se = s.SectorEmotion;
+    string CycleColor(SectorEmotionCycle c) => c switch {
+        SectorEmotionCycle.Consensus => "#2d6a4f",
+        SectorEmotionCycle.Climax    => "#e76f51",
+        SectorEmotionCycle.Decline   => "#e76f51",
+        SectorEmotionCycle.Recovery  => "#e9c46a",
+        SectorEmotionCycle.Divergence => "#e9c46a",
+        _ => "#9CA3AF"
+    };
+    string CycleLabel(SectorEmotionCycle c) => c switch {
+        SectorEmotionCycle.IcePoint   => "冰点",
+        SectorEmotionCycle.Recovery   => "修复",
+        SectorEmotionCycle.Divergence => "分歧",
+        SectorEmotionCycle.Consensus  => "一致",
+        SectorEmotionCycle.Climax     => "高潮",
+        SectorEmotionCycle.Decline    => "退潮",
+        _ => "-"
+    };
+    <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+        <div class="l3-title" style="color:#60A5FA">板块情绪</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+            <div><div style="color:#9CA3AF;font-size:11px">所属板块</div><div style="font-size:16px;font-weight:700;color:#E5E7EB">@se.SectorName</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">情绪周期</div><div style="font-size:20px;font-weight:700;color:@CycleColor(se.Cycle)">@CycleLabel(se.Cycle)</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">板块强度</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@se.SectorStrengthScore.ToString("F0")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">分歧风险</div><div style="font-size:20px;font-weight:700;color:@(se.DivergenceRisk>=70?"#e76f51":se.DivergenceRisk>=50?"#e9c46a":"#9CA3AF")">@se.DivergenceRisk.ToString("F0")</div></div>
+        </div>
+        <div style="margin-top:10px;color:#D1D5DB;font-size:13px;background:#111827;padding:10px;border-radius:4px">@se.Summary</div>
+    </div>
+}
+
+@* 板块共振 *@
+@if (s.SectorResonance != null)
+{
+    var sr = s.SectorResonance;
+    string ResColor(decimal v) => v >= 75 ? "#2d6a4f" : v >= 50 ? "#e9c46a" : "#e76f51";
+    <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+        <div class="l3-title" style="color:#f59e0b">板块共振分析</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+            <div><div style="color:#9CA3AF;font-size:11px">共振评分</div><div style="font-size:20px;font-weight:700;color:@ResColor(sr.ResonanceScore)">@sr.ResonanceScore.ToString("F0")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">板块趋势</div><div style="font-size:16px;font-weight:700;color:#E5E7EB">@sr.SectorTrend</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">上涨/总数</div><div style="font-size:16px;font-weight:700;color:#E5E7EB">@sr.SectorRisingCount / @(sr.SectorRisingCount + sr.SectorFallingCount)</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">涨停数</div><div style="font-size:16px;font-weight:700;color:@(sr.SectorLimitUpCount>=2?"#2d6a4f":"#9CA3AF")">@sr.SectorLimitUpCount</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">龙头状态</div><div style="font-size:14px;font-weight:700;color:@(sr.IsSectorLeading?"#2d6a4f":"#e76f51")">@(sr.IsSectorLeading?"强势":"走弱")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">孤立拉升</div><div style="font-size:14px;font-weight:700;color:@(sr.IsIndependentPump?"#e76f51":"#2d6a4f")">@(sr.IsIndependentPump?"是":"否")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">诱多风险</div><div style="font-size:14px;font-weight:700;color:@(sr.IsFakeBreakoutRisk?"#e76f51":"#2d6a4f")">@(sr.IsFakeBreakoutRisk?"是":"否")</div></div>
+        </div>
+        @if (sr.Tags.Any())
+        {
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+                @foreach (var tag in sr.Tags)
+                { <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:rgba(245,158,11,.15);color:#f59e0b">@tag</span> }
+            </div>
+        }
+        <div style="margin-top:10px;color:#D1D5DB;font-size:13px;background:#111827;padding:10px;border-radius:4px">@sr.SectorSummary</div>
+    </div>
+}
+
+@* 筹码控盘 *@
+@if (s.ChipControl != null)
+{
+    var cc = s.ChipControl;
+    string ScoreColor(decimal v) => v >= 70 ? "#2d6a4f" : v >= 50 ? "#e9c46a" : "#e76f51";
+    <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
+        <div class="l3-title" style="color:#a78bfa">筹码控盘</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+            <div><div style="color:#9CA3AF;font-size:11px">承接强度</div><div style="font-size:20px;font-weight:700;color:@ScoreColor(cc.SupportStrength)">@cc.SupportStrength.ToString("F0")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">筹码锁定</div><div style="font-size:20px;font-weight:700;color:@ScoreColor(cc.ChipLockScore)">@cc.ChipLockScore.ToString("F0")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">抗跌能力</div><div style="font-size:20px;font-weight:700;color:@ScoreColor(cc.DownsideResistance)">@cc.DownsideResistance.ToString("F0")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">强承接</div><div style="font-size:16px;font-weight:700;color:@(cc.IsStrongSupport?"#2d6a4f":"#9CA3AF")">@(cc.IsStrongSupport?"是":"否")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">派发嫌疑</div><div style="font-size:16px;font-weight:700;color:@(cc.IsDistributionSuspected?"#e76f51":"#2d6a4f")">@(cc.IsDistributionSuspected?"是":"否")</div></div>
+        </div>
+        @if (cc.Tags.Any())
+        {
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+                @foreach (var tag in cc.Tags)
+                { <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:rgba(167,139,250,.15);color:#a78bfa">@tag</span> }
+            </div>
+        }
+        <div style="margin-top:10px;color:#D1D5DB;font-size:13px;background:#111827;padding:10px;border-radius:4px">@cc.Summary</div>
+    </div>
+}

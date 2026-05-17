@@ -95,13 +95,8 @@ public class DataSourceFallbackService
     /// <summary>获取单股实时行情：AKShare → 腾讯 → null</summary>
     public async Task<RealTimeQuote?> GetRealtimeQuoteAsync(string code)
     {
-        // 先从快照内存中找
-        if (_snapshotCache != null)
-        {
-            var snap = _snapshotCache.FirstOrDefault(s => s.Code == code);
-            if (snap != null && snap.Price > 0)
-                return new RealTimeQuote(snap.Price, snap.Price, snap.Price, snap.ChangePct, 0, snap.Price, snap.Price, snap.Amount, snap.Turnover);
-        }
+        // 快照仅有价格和涨跌幅，无真实OHLC数据，不伪造K线
+        // 跳过快照查询，直接走腾讯接口获取完整行情
 
         // 腾讯接口
         try
