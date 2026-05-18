@@ -197,11 +197,24 @@ def get_minute(code):
     except Exception as e:
         return {"error": str(e)}, 500
 
+# 名称查找缓存
+_name_cache = {}
+
+def _get_stock_name(code):
+    if code in _name_cache:
+        return _name_cache[code]
+    stock_list = get_stock_list()
+    name = next((n for n, c in stock_list.items() if c == code), None)
+    _name_cache[code] = name
+    # 最多缓存 5000 条
+    if len(_name_cache) > 5000:
+        _name_cache.clear()
+    return name
+
 @app.route("/name/<code>")
 def get_name(code):
     try:
-        stock_list = get_stock_list()
-        name = next((n for n, c in stock_list.items() if c == code), None)
+        name = _get_stock_name(code)
         if name:
             return jsonify({"code": code, "name": name})
         return {"error": "not found"}, 404
@@ -322,6 +335,19 @@ def get_all_stocks():
     except Exception as e:
         return {"error": str(e)}, 500
 
+def _is_common_a_stock(code):
+    """判断是否为普通A股（沪深主板），排除ETF/基金/债券/指数"""
+    if len(code) != 6 or not code.isdigit():
+        return False
+    # 沪市主板
+    if code.startswith(('600', '601', '603', '605')):
+        return True
+    # 深市主板
+    if code.startswith(('000', '001', '002', '003')):
+        return True
+    # 排除创业板、科创板、北交所、ETF、债券、指数等
+    return False
+
 @app.route("/snapshot")
 def get_snapshot():
     """用腾讯批量行情接口获取全市场快照，每批100只，并发请求"""
@@ -329,10 +355,9 @@ def get_snapshot():
     from requests import Session
 
     stock_list = get_stock_list()
-    # 只取沪深A股（6位数字，排除北交所8/4开头）
+    # 只取沪深主板A股（排除创业板/科创板/北交所/ETF/基金/债券）
     codes = [c for c in stock_list.values()
-             if len(c) == 6 and c.isdigit()
-             and not c.startswith(('8', '4'))]
+             if _is_common_a_stock(c)]
 
     def prefix(code):
         return 'sh' if code.startswith('6') else 'sz'

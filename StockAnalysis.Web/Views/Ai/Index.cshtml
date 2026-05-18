@@ -1,54 +1,8 @@
 @{
-    ViewData["Title"] = "AI量价分析";
+    ViewData["Title"] = "AI解读";
 }
-<div class="container py-4" style="max-width:800px">
-    <h4 class="mb-3">AI 量价关系拆解助手</h4>
-    <div id="chat-box" class="border rounded p-3 mb-3 bg-light" style="min-height:300px;max-height:500px;overflow-y:auto">
-        <div class="text-muted small">我会帮你分析量价关系、市场状态和相对强弱，例如：鸿远电子当前是什么市场状态？</div>
-    </div>
-    <div class="input-group">
-        <input id="msg-input" type="text" class="form-control" placeholder="输入问题..." />
-        <button class="btn btn-primary" id="send-btn">发送</button>
-    </div>
+<div class="container py-4 text-center" style="max-width:600px">
+    <h4 class="mb-3">AI 解读已迁移</h4>
+    <p class="text-muted">AI 解读功能已集成到个股详情页。请搜索股票后点击"生成AI解读"按钮。</p>
+    <a asp-controller="Stock" asp-action="Index" class="btn btn-primary">去搜索股票</a>
 </div>
-
-<script>
-const box = document.getElementById('chat-box');
-const input = document.getElementById('msg-input');
-const btn = document.getElementById('send-btn');
-
-function appendMsg(role, text) {
-    const div = document.createElement('div');
-    div.className = 'mb-2';
-    div.innerHTML = `<span class="fw-bold ${role === 'user' ? 'text-primary' : 'text-success'}">${role === 'user' ? '我' : 'AI'}：</span>${text.replace(/\n/g, '<br>')}`;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-}
-
-async function send() {
-    const msg = input.value.trim();
-    if (!msg) return;
-    input.value = '';
-    btn.disabled = true;
-    appendMsg('user', msg);
-    appendMsg('ai', '思考中...');
-    try {
-        const resp = await fetch('/Ai/Ask', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: msg })
-        });
-        const data = await resp.json();
-        box.lastChild.remove();
-        appendMsg('ai', data.reply ?? '无响应');
-    } catch {
-        box.lastChild.remove();
-        appendMsg('ai', '请求失败，请检查网络或API配置');
-    }
-    btn.disabled = false;
-    input.focus();
-}
-
-btn.addEventListener('click', send);
-input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
-</script>

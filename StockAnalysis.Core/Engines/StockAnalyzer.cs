@@ -23,6 +23,7 @@ public class StockAnalyzer
     private readonly SectorEmotionEngine _sectorEmotion = new();
     private readonly ChipControlEngine _chipControl = new();
     private readonly SectorResonanceEngine _sectorResonance = new();
+    private readonly PositionEngine _position = new();
 
     public string? LastExcludeReason { get; private set; }
 
@@ -50,14 +51,15 @@ public class StockAnalyzer
         var ind = _calc.Calculate(bars, last);
         bool marketWeak = ComputeMarketWeak(marketBars);
 
-        // ── 2. 量价 → 周期 → 信号 → 主力 → 涨停 → 票型 → 风险 ──
+        // ── 2. 量价 → 周期 → 信号 → 主力 → 涨停 → 票型 → 位置 → 风险 ──
         var vol = _volume.Analyze(bars, last);
         var cycle = _cycle.Detect(bars, last, vol);
         var (signalType, signalReason) = _signal.Detect(bars, last, vol, cycle);
         var smartMoney = _smartMoney.Analyze(bars, last, vol);
         int limitUpCount = ComputeLimitUpCount(bars, last);
         var stockStyle = _styleDetector.Detect(bars, last, limitUpCount);
-        var riskResult = _risk.Score(bars, last, vol, marketWeak, stockStyle);
+        var position = _position.Evaluate(bars, last, vol, cycle, smartMoney, ind);
+        var riskResult = _risk.Score(bars, last, vol, marketWeak, stockStyle, position);
         var riskScore = riskResult.Total;
         var riskReasons = riskResult.Reasons;
         var intraday = _intraday.Analyze(bars, last, minuteBars, stockStyle);
@@ -119,17 +121,34 @@ public class StockAnalyzer
         decimal? targetPrice = (dec == Decision.Ignore || dec == Decision.Sell)
             ? null : Math.Round(bar.Close * 1.05m, 2);
 
-        bool isEmotionLeader = limitUpCount >= 2
-            || smartMoney.Behavior == SmartMoneyBehavior.AggressiveAttack
-            || (smartMoney.Behavior == SmartMoneyBehavior.HighShock && riskResult.SentimentRisk >= 50);
-        var (action, position) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol, isEmotionLeader, intraday.Grade);
+        // 情绪龙头判定：必须多条件同时满足，禁止仅凭涨幅判断
+        bool isEmotionLeader = false;
+        bool isEmotionActive = false;
+        if (sectorEmo != null && sectorStocks != null && sectorStocks.Count > 0)
+        {
+            // 有板块数据：严格判定
+            isEmotionLeader = limitUpCount >= 2
+                && sectorEmo.LimitUpCount >= 3
+                && sectorEmo.SectorStrengthScore >= 70
+                && (smartMoney.Behavior == SmartMoneyBehavior.AggressiveAttack
+                    || smartMoney.Behavior == SmartMoneyBehavior.Accumulation)
+                && !position.IsOverextended;
+            isEmotionActive = limitUpCount >= 2 && !isEmotionLeader;
+        }
+        else
+        {
+            // 无板块数据：只能标记为情绪活跃，不能标记为龙头
+            isEmotionActive = limitUpCount >= 2
+                || smartMoney.Behavior == SmartMoneyBehavior.AggressiveAttack;
+        }
+        var (action, positionPct) = GenerateAdvice(dec, signalType, riskScore, trend, cycle, vol, isEmotionLeader, intraday.Grade);
 
         int limitUpScore = ComputeLimitUpScore(intraday, bar, ind, vol, limitUpCount, stockStyle, mainForce, riskScore);
 
         return [BuildResult(bar, signalType, riskScore, dec, reasons, ind, stopLoss, targetPrice,
-            trend, trendStage, action, position, intraday, limitUpCount, belowMA20, cycle, vol,
-            smartMoney, riskResult, isEmotionLeader, limitUpScore, mainForce, platform,
-            dragonTiger, sectorEmo, chipControl, sectorRes)];
+            trend, trendStage, action, positionPct, intraday, limitUpCount, belowMA20, cycle, vol,
+            smartMoney, riskResult, isEmotionLeader, isEmotionActive, limitUpScore, mainForce, platform,
+            dragonTiger, sectorEmo, chipControl, sectorRes, position)];
     }
 
     // ── 子方法 ────────────────────────────────────────────────────────────
@@ -186,11 +205,15 @@ public class StockAnalyzer
         decimal stopLoss, decimal? targetPrice, Trend trend, TrendStage trendStage,
         string action, int position, IntradayStrengthResult intraday, int limitUpCount,
         bool belowMA20, CycleResult cycle, VolumeResult vol, SmartMoneyResult smartMoney,
-        RiskResult riskResult, bool isEmotionLeader, int limitUpScore,
+        RiskResult riskResult, bool isEmotionLeader, bool isEmotionActive, int limitUpScore,
         MainForceBehaviorResult mainForce, MainUpPlatformResult? platform,
         DragonTigerBehaviorResult? dragonTiger, SectorEmotionResult? sectorEmo,
-        ChipControlResult? chipControl, SectorResonanceResult? sectorRes)
+        ChipControlResult? chipControl, SectorResonanceResult? sectorRes,
+        PositionResult positionResult)
     {
+        var unifiedLabel = PositionEngine.GetUnifiedRiskLabel(
+            positionResult.Stage, riskScore, positionResult.IsOverextended);
+
         return new StockSignal
         {
             Code = bar.Code, Name = bar.Name, Date = bar.Date, Close = bar.Close,
@@ -215,6 +238,14 @@ public class StockAnalyzer
             VolatilityRisk = riskResult.VolatilityRisk,
             SentimentRisk = riskResult.SentimentRisk,
             IsEmotionLeader = isEmotionLeader,
+            IsEmotionActive = isEmotionActive,
+            PositionLevel = positionResult.Level,
+            DetailedStage = positionResult.Stage,
+            DistFromMA5 = positionResult.DistFromMA5,
+            DistFromMA20 = positionResult.DistFromMA20,
+            IsOverextended = positionResult.IsOverextended,
+            AccelerationState = positionResult.Acceleration,
+            UnifiedLabel = unifiedLabel,
             IntradayStrengthScore = intraday.Score,
             AttackWillDescription = intraday.AttackWill switch {
                 AttackWill.Strong => "强", AttackWill.Medium => "中", _ => "弱"

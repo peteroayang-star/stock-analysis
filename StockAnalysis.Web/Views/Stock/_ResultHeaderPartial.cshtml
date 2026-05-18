@@ -1,5 +1,6 @@
 @model StockAnalysis.Web.Models.SignalWithSuggestion
 @using StockAnalysis.Core.Models
+@using StockAnalysis.Core.Engines
 @{
     var s = Model.Signal;
     var rt = Model.RealTime;
@@ -84,67 +85,49 @@
     </div>
     <!-- 行3：辅助标签 -->
     <div class="l1-row-tags">
-        @if (s.IsEmotionLeader)
-        { <span class="tag tag-smart-attack">情绪龙头</span> }
-
-        @* 风险标签体系 *@
+        @* PositionEngine 统一阶段标签 *@
         @{
-            var riskTag = "";
-            var riskClass = "tag tag-smart-dist";
-
-            if (s.LimitUpCountIn14Days >= 2 && rt != null && rt.Turnover > 15 && rt.ChangePct > 5)
-            {
-                riskTag = "⚠ 情绪投机型";
-            }
-            else if (Model.FinanceRiskAdj > 15)
-            {
-                riskTag = "⚠ 财务风险型";
-            }
-            else if (s.Close < 5 && s.VolatilityRisk >= 40)
-            {
-                riskTag = "⚠ 低价高波动型";
-            }
-            else if (rt != null && rt.Turnover > 20 && s.VolumeDescription?.Contains("放量滞涨") == true)
-            {
-                riskTag = "⚠ 游资博弈型";
-            }
-            else if (s.VolumeDescription?.Contains("放量派发") == true || s.SupportBroken)
-            {
-                riskTag = "⚠ 高位分歧型";
-            }
-            else if (s.RiskScore >= 70 || s.SentimentRisk >= 70)
-            {
-                riskTag = "⚠ 综合高风险";
-            }
-
-            if (!string.IsNullOrEmpty(riskTag))
-            {
-                <span class="@riskClass">@riskTag</span>
-            }
-        }
-
-        @if (!string.IsNullOrEmpty(s.CycleStage))
-        { <span class="@CycleTagClass(s.CycleStage)">@s.CycleStage</span> }
-        @if (!string.IsNullOrEmpty(s.VolumeDescription))
-        {
-            <span class="tag tag-smart-other">@s.VolumeDescription</span>
-            var volumeExplain = s.VolumeDescription switch {
-                "放量进攻" => "新增资金参与度提升",
-                "缩量整理" or "缩量回踩" => "抛压暂时有限，持续性需观察",
-                "放量滞涨" => "高位分歧增强，追价意愿下降",
-                "放量派发" => "兑现压力增强",
-                "弱承接" => "承接力度偏弱",
-                "无量横盘" => "市场进入观望阶段",
+            string stageLabel = s.DetailedStage switch {
+                DetailedTrendStage.Launch => "启动期",
+                DetailedTrendStage.TrendBuilding => "趋势增强",
+                DetailedTrendStage.MainUpEarly => "主升初期",
+                DetailedTrendStage.MainUpMid => "主升中期",
+                DetailedTrendStage.MainUpLate => "主升末端",
+                DetailedTrendStage.HighShock => "高位震荡",
+                DetailedTrendStage.DistributionRisk => "出货风险",
+                DetailedTrendStage.TrendDecline => "趋势衰退",
                 _ => ""
             };
-            if (!string.IsNullOrEmpty(volumeExplain))
-            {
-                <span class="tag" style="background:#2d3748;color:#9CA3AF;border:none">@volumeExplain</span>
-            }
+            string stageClass = s.DetailedStage switch {
+                DetailedTrendStage.MainUpEarly or DetailedTrendStage.MainUpMid => "tag tag-cycle-up",
+                DetailedTrendStage.MainUpLate or DetailedTrendStage.DistributionRisk => "tag tag-cycle-down",
+                DetailedTrendStage.HighShock => "tag tag-cycle-mid",
+                _ => "tag tag-smart-other"
+            };
+            if (!string.IsNullOrEmpty(stageLabel))
+            { <span class="@stageClass">@stageLabel</span> }
+
+            // 位置等级
+            string posLabel = s.PositionLevel switch {
+                PositionLevel.Low => "低位", PositionLevel.Mid => "中位", PositionLevel.High => "高位"
+            };
+            <span class="tag tag-smart-other">@posLabel</span>
+
+            // 过度延伸警告
+            if (s.IsOverextended)
+            { <span class="tag tag-risk-ext">偏离过大</span> }
         }
+
+        @* 情绪标签（PositionEngine 驱动） *@
+        @if (s.IsEmotionLeader)
+        { <span class="tag tag-smart-attack">情绪龙头</span> }
+        else if (s.IsEmotionActive)
+        { <span class="tag tag-smart-other">情绪活跃</span> }
+
+        @* 风险分 + 主力 *@
+        <span class="@RiskTagClass(s.RiskScore)">@RiskLabel(s.RiskScore) @s.RiskScore</span>
         @if (s.SmartMoney != SmartMoneyBehavior.None)
         { <span class="@SmartMoneyTagClass(s.SmartMoney)">@SmartMoneyLabel(s.SmartMoney)</span> }
-        <span class="@RiskTagClass(s.RiskScore)">@RiskLabel(s.RiskScore) @s.RiskScore</span>
         @if (s.LimitUpCountIn14Days > 0)
         { <span class="tag tag-buy">14日内涨停@(s.LimitUpCountIn14Days)次</span> }
     </div>
@@ -162,3 +145,15 @@
         <span style="color:#9CA3AF">@s.Date.ToString("yyyy-MM-dd")</span>
     </div>
 }
+
+@* 关键价格一行 + 折叠按钮 *@
+<div class="layer-keyprices d-flex align-items-center gap-3 mt-1 small">
+    <span>止损 <b class="text-danger">@(s.StopLossPrice?.ToString("F2") ?? "-")</b></span>
+    <span>支撑 <b>@(s.SupportPrice?.ToString("F2") ?? "-")</b></span>
+    <span>观察 <b>@(s.WatchPrice?.ToString("F2") ?? "-")</b></span>
+    @if (s.TargetPrice.HasValue) { <span>目标 <b class="text-success">@s.TargetPrice.Value.ToString("F2")</b></span> }
+    <button class="btn btn-sm btn-outline-secondary ms-auto toggle-detail-btn" type="button"
+            onclick="var d=this.closest('.terminal-card').querySelector('.layer-3,.ai-analysis-section,.layer-finance');d.style.display=d.style.display==='none'?'':'none';this.textContent=d.style.display==='none'?'展开详细分析':'收起详细分析'">
+        收起详细分析
+    </button>
+</div>

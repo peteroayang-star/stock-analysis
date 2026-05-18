@@ -2,51 +2,91 @@
     ViewData["Title"] = "股票分析系统";
 }
 
-<h2 class="mb-1">股票交易决策系统</h2>
-<p class="text-muted mb-2">帮你回答：现在能不能买？风险在哪里？该不该止损？</p>
-<div class="mb-4">
-    <p class="fs-5 mb-2">输入股票名称，一键判断能不能买。</p>
-    <a asp-controller="Stock" asp-action="Index" class="btn btn-primary btn-lg">立即分析一只股票</a>
+@* 搜索区 *@
+<div class="row mb-4">
+    <div class="col-md-6">
+        <h2 class="mb-1">股票交易决策系统</h2>
+        <p class="text-muted mb-2">输入股票名称或代码，一键获取操作建议</p>
+        <div class="input-group input-group-lg">
+            <input id="home-search" type="text" class="form-control" placeholder="代码/名称，如 000066 或 中国长城" />
+            <button class="btn btn-primary" id="home-search-btn">分析</button>
+        </div>
+        <a asp-controller="Stock" asp-action="Index" class="btn btn-sm btn-outline-secondary mt-2">批量分析 &gt;</a>
+    </div>
 </div>
 
 <div class="row g-4">
-    <div class="col-md-4">
-        <div class="card h-100 border-primary">
-            <div class="card-body">
-                <h5 class="card-title text-primary">快速选股</h5>
-                <p class="card-text text-muted small">上传行情文件，系统自动判断哪只股票现在可以买、风险多大、止损在哪里。</p>
-                <a asp-controller="Stock" asp-action="Index" class="btn btn-primary">找可以买的股票</a>
+    @* 今日机会池 *@
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>今日机会池</strong>
+                <a asp-controller="WatchPool" asp-action="Index" class="btn btn-sm btn-outline-primary">查看全部</a>
+            </div>
+            <div class="card-body p-0">
+                <div id="home-opportunity" class="p-3 text-muted small">加载中...</div>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card h-100 border-success">
+    @* 快速入口 *@
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header"><strong>快速操作</strong></div>
             <div class="card-body">
-                <h5 class="card-title text-success">我的持仓</h5>
-                <p class="card-text text-muted small">已经买了？系统告诉你现在该拿着、减仓还是止损离场。</p>
-                <a asp-controller="Portfolio" asp-action="Index" class="btn btn-success">判断现在该不该卖</a>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card h-100 border-warning">
-            <div class="card-body">
-                <h5 class="card-title text-warning">历史回测</h5>
-                <p class="card-text text-muted small">用历史数据验证：这套买卖策略过去胜率多少？平均能赚多少？</p>
-                <a asp-controller="Backtest" asp-action="Index" class="btn btn-warning">验证策略是否有效</a>
+                <div class="d-grid gap-2">
+                    <a asp-controller="WatchPool" asp-action="Index" class="btn btn-outline-primary">每日机会池 — 扫描热门板块</a>
+                    <a asp-controller="Portfolio" asp-action="Index" class="btn btn-outline-success">我的持仓 — 持仓风险评估</a>
+                    <a asp-controller="Screener" asp-action="Index" class="btn btn-outline-warning">龙头选股 — 板块龙头回调</a>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<div class="mt-5 p-3 bg-light rounded">
+@* 操作建议图例 *@
+<div class="mt-4 p-3 bg-light rounded">
     <h6 class="text-muted mb-2">系统会给出的操作建议</h6>
     <div class="row g-2">
         <div class="col-md-4"><span class="badge bg-success me-1">可以买入</span> 信号出现，风险可控</div>
-        <div class="col-md-4"><span class="badge bg-warning text-dark me-1">观察等待</span> 有信号但风险偏高，等等看</div>
+        <div class="col-md-4"><span class="badge bg-warning text-dark me-1">观察等待</span> 有信号但风险偏高</div>
         <div class="col-md-4"><span class="badge bg-primary me-1">持有不动</span> 趋势健康，继续拿着</div>
         <div class="col-md-4"><span class="badge bg-orange text-white me-1">建议减仓</span> 风险上升，先减半仓</div>
         <div class="col-md-4"><span class="badge bg-danger me-1">止损离场</span> 风险过高，及时出局</div>
         <div class="col-md-4"><span class="badge bg-secondary me-1">暂时观望</span> 无信号，不参与</div>
     </div>
 </div>
+
+@section Scripts {
+<script>
+document.getElementById('home-search-btn').addEventListener('click', function() {
+    var stock = document.getElementById('home-search').value.trim();
+    if (stock) analyzeStock(stock);
+});
+document.getElementById('home-search').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        var stock = this.value.trim();
+        if (stock) analyzeStock(stock);
+    }
+});
+
+// 加载今日机会池预览
+fetch('/WatchPool/Progress?scanId=latest')
+    .then(function(r) { return r.text(); })
+    .catch(function() {});
+
+// 从历史记录加载
+var xhr = new XMLHttpRequest();
+xhr.open('GET', '/WatchPool/Index', true);
+xhr.onload = function() {
+    var el = document.getElementById('home-opportunity');
+    if (!el) return;
+    var historyLinks = xhr.responseText.match(/href="\/WatchPool\/Result\?date=([^"]+)"/g);
+    if (!historyLinks || historyLinks.length === 0) {
+        el.innerHTML = '暂无记录，<a href="/WatchPool/Index">立即生成</a>';
+        return;
+    }
+    el.innerHTML = '有历史记录可用，<a href="/WatchPool/Index">查看机会池</a>';
+};
+xhr.send();
+</script>
+}

@@ -36,12 +36,22 @@ else
     {
         <div class="terminal-card @DecisionBorderClass(item.Signal.Decision)">
             @await Html.PartialAsync("_ResultHeaderPartial", item)
-            <div class="layer-3">
+            <div class="layer-3" style="display:none">
                 @await Html.PartialAsync("_ResultSignalsPartial", item)
                 @await Html.PartialAsync("_ResultIntradayPartial", item)
                 @await Html.PartialAsync("_ResultEnginesPartial", item)
             </div>
-            @await Html.PartialAsync("_ResultFinancePartial", item)
+            <div class="layer-finance" style="display:none">
+                @await Html.PartialAsync("_ResultFinancePartial", item)
+            </div>
+            <div class="ai-analysis-section mt-2 pt-2 border-top" style="display:none">
+                <button class="btn btn-sm btn-outline-info ai-generate-btn"
+                        data-code="@item.Signal.Code"
+                        onclick="generateAiAnalysis(this, '@item.Signal.Code')">
+                    生成AI解读
+                </button>
+                <div class="ai-result mt-2 small text-muted" style="display:none; max-width:600px"></div>
+            </div>
         </div>
     }
 }
@@ -52,3 +62,30 @@ else
 {
     @await Html.PartialAsync("_ResultRealtimeScript")
 }
+
+<script>
+// AI 解读按钮逻辑
+window.generateAiAnalysis = function(btn, code) {
+    var resultDiv = btn.nextElementSibling;
+    btn.disabled = true;
+    btn.textContent = 'AI分析中...';
+    fetch('/Stock/GenerateAiAnalysis?stock=' + encodeURIComponent(code), { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.analysis) {
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = '<strong>' + (data.cached ? 'AI解读（缓存）' : 'AI解读') + '：</strong>' + data.analysis;
+                btn.style.display = 'none';
+            } else {
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = '<span class="text-warning">' + (data.error || 'AI分析暂不可用') + '</span>';
+                btn.textContent = '重试';
+                btn.disabled = false;
+            }
+        })
+        .catch(function() {
+            btn.textContent = '重试';
+            btn.disabled = false;
+        });
+};
+</script>

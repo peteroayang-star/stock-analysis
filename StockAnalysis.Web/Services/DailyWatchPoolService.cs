@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using StockAnalysis.Core.Engines;
 using StockAnalysis.Core.Models;
@@ -7,183 +8,291 @@ namespace StockAnalysis.Web.Services;
 
 public class DailyWatchPoolService
 {
+    /// <summary>扫描进度（供前端轮询）</summary>
+    private static readonly ConcurrentDictionary<string, ScanProgress> ScanProgresses = new();
+
+    public static ScanProgress? GetScanProgress(string scanId)
+        => ScanProgresses.TryGetValue(scanId, out var p) ? p : null;
+
+    public static void InitScanProgress(string scanId)
+    {
+        ScanProgresses[scanId] = new ScanProgress(
+            0, 0, 0, 0, 0, "准备中...", "", "", 0, "Running", null, DateTime.UtcNow);
+    }
+
+    public static void UpdateScanProgressFail(string scanId, string message)
+    {
+        if (ScanProgresses.TryGetValue(scanId, out var existing))
+            ScanProgresses[scanId] = existing with { Status = "Failed", Message = message, UpdatedAt = DateTime.UtcNow };
+    }
+
+    private static void UpdateScanProgress(string? scanId, int done, int total, int matched, int filtered, int failed,
+        string currentStock, string currentSector, string currentSource, int failedSources, string status)
+    {
+        if (scanId == null) return;
+        ScanProgresses[scanId] = new ScanProgress(
+            done, total, matched, filtered, failed,
+            currentStock, currentSector, currentSource,
+            failedSources, status, null, DateTime.UtcNow);
+    }
+
     private readonly StockAnalyzer _analyzer;
     private readonly DataSourceFallbackService _ds;
-    private readonly MainstreamSectorScanner _sectorScanner = new();
-    private readonly HotSectorRotationEngine _rotationEngine = new();
+    private readonly RiskStockTagEngine _riskTag;
+    private readonly MarketContextEngine _marketCtx = new();
     private readonly string _logPath;
     private readonly string _cachePath;
+    private readonly string _dataDir;
 
-    public DailyWatchPoolService(StockAnalyzer analyzer, DataSourceFallbackService ds, IWebHostEnvironment env)
+    public DailyWatchPoolService(StockAnalyzer analyzer, DataSourceFallbackService ds,
+        RiskStockTagEngine riskTag, IWebHostEnvironment env)
     {
         _analyzer = analyzer;
         _ds = ds;
-        var dataDir = Path.Combine(env.ContentRootPath, "..", "Data");
-        _logPath = Path.Combine(dataDir, "watch_pool_log.json");
-        _cachePath = Path.Combine(dataDir, "candidate_cache.json");
-        Directory.CreateDirectory(dataDir);
+        _riskTag = riskTag;
+        _dataDir = Path.Combine(env.ContentRootPath, "..", "Data");
+        _logPath = Path.Combine(_dataDir, "watch_pool_log.json");
+        _cachePath = Path.Combine(_dataDir, "candidate_cache.json");
+        Directory.CreateDirectory(_dataDir);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 新逻辑：市场 → 主线板块 → 龙头识别 → 个股筛选
+    // ═══════════════════════════════════════════════════════════════
 
     public async Task<WatchPoolResult> GenerateAsync(
         List<StockBar>? marketBars,
-        IProgress<(int done, int total, string current)>? progress = null,
+        List<string>? targetSectors = null,
+        bool fullMarket = false,
+        string? scanId = null,
         CancellationToken ct = default)
     {
-        // ── 步骤1：一次性获取全市场快照，本地内存过滤 ────────────
+        var startTime = DateTime.UtcNow;
+        Console.WriteLine($"[WatchPool] === 扫描开始 {DateTime.Now:HH:mm:ss} ===");
+
+        // ── 步骤1: 获取快照 + 市场上下文 ──────────────────────
         var snapshot = await _ds.GetMarketSnapshotAsync();
-        var snapshotMap = snapshot.ToDictionary(s => s.Code);
+        Console.WriteLine($"[WatchPool] 快照: {snapshot.Count:N0} 只");
 
-        // ── 步骤2：用快照全量数据评估市场整体热度（不依赖板块成分股接口）────
-        var marketResult = EvaluateSectorFromSnapshot("全市场", snapshot
-            .Where(s => s.Price > 0 && !s.Name.Contains("ST")).Take(200).ToList());
-        var top10 = new List<(string, MainstreamSectorResult, List<(string, string)>)>
+        if (snapshot.Count == 0)
         {
-            ("全市场", marketResult, [])
-        };
+            var localResult = await ScanLocalCsvFiles(marketBars, fullMarket, targetSectors, scanId, startTime, ct);
+            if (localResult != null) return localResult;
+            return EmptyResult("全市场快照为空且本地无CSV缓存。请先启动AKShare Flask服务: python akshare_server.py", scanId);
+        }
 
-        var previousScores = await LoadPreviousSectorScoresAsync();
-        var currentScores = top10.ToDictionary(x => x.Item1, x => x.Item2.SectorHeatScore);
-        var rotations = _rotationEngine.Analyze(previousScores, currentScores);
+        // 全市场情绪统计
+        int totalSnap = snapshot.Count;
+        int risingSnap = snapshot.Count(s => s.ChangePct > 0);
+        int limitUpSnap = snapshot.Count(s => s.ChangePct >= 9.5m);
+        decimal avgGain = totalSnap > 0 ? snapshot.Average(s => s.ChangePct) : 0;
 
-        // ── 步骤3：直接从快照过滤候选股 ─────────────────────────
-        var cache = await LoadCacheAsync();
-        var prioritySet = cache
-            .Where(c => c.ConsecutiveAppearDays >= 2 || c.IsPreviousValuePool)
-            .ToDictionary(c => c.StockCode, c => c);
+        // ── 步骤2: 主线板块识别 ──────────────────────────────
+        List<MainlineSector> mainlines;
 
-        var candidateSet = snapshot
-            .Where(s => s.Price > 0 && s.Price < 30m && s.Amount >= 500_0000m
-                && !s.Name.Contains("ST") && !s.Name.Contains("退")
-                && s.Code.Length == 6
-                && !s.Code.StartsWith("688") && !s.Code.StartsWith("300")
-                && !s.Code.StartsWith("301") && !s.Code.StartsWith("8") && !s.Code.StartsWith("4")
-                && (s.TotalMv == 0 || s.TotalMv / 1_0000_0000m < 300m))
-            .ToDictionary(s => s.Code, s => s.Name);
+        if (targetSectors != null && targetSectors.Count > 0)
+        {
+            // 用户指定板块 → 获取成分股计算热度
+            var sectorResults = new List<(string, MainstreamSectorResult)>();
+            foreach (var sec in targetSectors.Take(10))
+            {
+                var stocks = await _ds.GetSectorStocksAsync(sec);
+                var sectorSnaps = stocks
+                    .Select(s => snapshot.FirstOrDefault(x => x.Code == s.Code))
+                    .Where(x => x != null).Cast<MarketSnapshotItem>().ToList();
+                var heat = EvaluateSectorFromSnapshot(sec, sectorSnaps.Count > 0 ? sectorSnaps : []);
+                sectorResults.Add((sec, heat));
+            }
+            mainlines = BuildMainlines(sectorResults, targetSectors.Count);
+            Console.WriteLine($"[WatchPool] 用户指定板块: {mainlines.Count} 个");
+        }
+        else if (!fullMarket)
+        {
+            // 默认：获取所有板块，取 TOP5
+            var allSectors = await _ds.GetSectorsAsync();
+            var sectorResults = new List<(string, MainstreamSectorResult)>();
+            int sectorIdx = 0;
+            foreach (var sec in allSectors.Take(20))
+            {
+                var stocks = await _ds.GetSectorStocksAsync(sec);
+                var sectorSnaps = stocks
+                    .Select(s => snapshot.FirstOrDefault(x => x.Code == s.Code))
+                    .Where(x => x != null).Cast<MarketSnapshotItem>().ToList();
+                if (sectorSnaps.Count < 5) continue;
+                var heat = EvaluateSectorFromSnapshot(sec, sectorSnaps);
+                sectorResults.Add((sec, heat));
+                sectorIdx++;
+                if (sectorIdx >= 10) break;
+            }
+            mainlines = BuildMainlines(sectorResults, allSectors.Count)
+                .OrderByDescending(m => m.HeatScore).Take(5).ToList();
+            Console.WriteLine($"[WatchPool] TOP5主线板块: {string.Join(", ", mainlines.Select(m => m.SectorName))}");
+        }
+        else
+        {
+            // 全市场模式：从快照直接分析
+            var marketHeat = EvaluateSectorFromSnapshot("全市场", snapshot
+                .Where(s => s.Price > 0 && !s.Name.Contains("ST")).Take(200).ToList());
+            mainlines = BuildMainlines([("全市场", marketHeat)], 1);
+            Console.WriteLine("[WatchPool] 全市场模式");
+        }
 
-        foreach (var item in prioritySet.Values)
-            candidateSet.TryAdd(item.StockCode, item.StockName);
+        if (mainlines.Count == 0)
+        {
+            return EmptyResult("未找到有效主线板块。请检查板块成分股接口是否正常。", scanId);
+        }
 
-        // ── 步骤4：排序取候选股（已在步骤3过滤完毕）────────────
-        var candidates = candidateSet
-            .Select(kv => (Code: kv.Key, Name: kv.Value,
-                Priority: prioritySet.TryGetValue(kv.Key, out var c) ? c.ScanPriorityScore : 0))
-            .OrderByDescending(x => x.Priority)
-            .Take(1000)
+        // ── 步骤3: 市场情绪周期 ──────────────────────────────
+        var marketCtxResult = _marketCtx.Analyze(
+            totalSnap, risingSnap, limitUpSnap, avgGain,
+            mainlines.Select(m => (m.SectorName, new MainstreamSectorResult(
+                m.SectorName, m.HeatScore, 0, 0, m.ContinuityScore, 0,
+                m.RisingCount, 0, m.LimitUpCount, 0,
+                m.HeatScore >= 80, m.HeatScore >= 65, false, ""
+            ))).ToList()
+        );
+
+        // ── 步骤4: 板块内个股筛选 ──────────────────────────
+        var allCandidates = new List<(string Code, string Name, string Sector, int SectorRank, decimal Amount, decimal ChangePct)>();
+        var snapshotMap = snapshot.ToDictionary(s => s.Code);
+        int totalCandidates = 0;
+
+        foreach (var mainline in mainlines)
+        {
+            var stocks = await _ds.GetSectorStocksAsync(mainline.SectorName);
+            if (stocks.Count == 0) continue;
+
+            // 按成交额排序取 TOP20
+            var sectorStocks = stocks
+                .Select(s =>
+                {
+                    var snap = snapshotMap.GetValueOrDefault(s.Code);
+                    return (s.Code, s.Name, Amount: snap?.Amount ?? 0, ChangePct: snap?.ChangePct ?? 0);
+                })
+                .Where(s => s.Amount > 0 && SecurityTypeFilter.IsCommonAStock(s.Code).IsValid)
+                .OrderByDescending(s => s.Amount)
+                .Take(20)
+                .ToList();
+
+            int rank = 0;
+            foreach (var s in sectorStocks)
+            {
+                rank++;
+                allCandidates.Add((s.Code, s.Name, mainline.SectorName, rank, s.Amount, s.ChangePct));
+            }
+            totalCandidates += sectorStocks.Count;
+            Console.WriteLine($"[WatchPool] 板块[{mainline.SectorName}]: {stocks.Count}成分股 → {sectorStocks.Count}候选");
+        }
+
+        // 去重（同一只股票可能属于多个板块，保留热度最高的板块）
+        var uniqueCandidates = allCandidates
+            .GroupBy(c => c.Code)
+            .Select(g => g.First())
+            .OrderByDescending(c => c.Amount)
+            .Take(fullMarket ? 200 : 100)
             .ToList();
 
-        // ── 步骤5：只对候选股请求历史K线并分析 ──────────────────
+        Console.WriteLine($"[WatchPool] 候选股: {uniqueCandidates.Count} 只 (来自{mainlines.Count}个板块)");
+
+        // 初始化进度
+        UpdateScanProgress(scanId, 0, uniqueCandidates.Count, 0, 0, 0, "准备中",
+            string.Join(",", mainlines.Take(3).Select(m => m.SectorName)), "", 0, "Running");
+
+        // ── 步骤5: 个股分析 + 龙头识别 ────────────────────
         int scanned = 0, failed = 0, filtered = 0, matched = 0, done = 0;
-        int totalCount = candidates.Count;
-        var startTime = DateTime.UtcNow;
+        int totalCount = uniqueCandidates.Count;
         string? currentStock = null;
         var semaphore = new SemaphoreSlim(8);
-        var sectorResultMap = top10.ToDictionary(x => x.Item1, x => x.Item2);
+        int failedSources = 0;
 
-        var tasks = candidates.Select(async s =>
+        var tasks = uniqueCandidates.Select(async c =>
         {
             await semaphore.WaitAsync(ct);
             try
             {
                 ct.ThrowIfCancellationRequested();
-                Interlocked.Exchange(ref currentStock, s.Name);
-                var bars = await _ds.GetHistoryBarsAsync(s.Code, s.Name);
+                Interlocked.Exchange(ref currentStock, c.Name);
+
+                var bars = await _ds.GetHistoryBarsAsync(c.Code, c.Name);
                 Interlocked.Increment(ref done);
-                progress?.Report((done, candidates.Count, s.Name));
+
+                UpdateScanProgress(scanId, done, totalCount, matched, filtered, failed,
+                    c.Name, c.Sector, _ds.Status.CurrentSource, failedSources, "Running");
 
                 if (bars == null || bars.Count < 60) { Interlocked.Increment(ref filtered); return null; }
 
-                var latestClose = bars[^1].Close;
-
                 Interlocked.Increment(ref scanned);
-
                 var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
                 var signal = signals.FirstOrDefault();
-                if (signal == null) return null;
+                if (signal == null) { return null; }
 
-                var plat = signal.MainUpPlatform;
-                if (plat == null || !plat.IsMainUpPlatform) return null;
-                if (plat.SecondWaveProbability < 60 || plat.LockPositionStrength < 60) return null;
-                if (signal.ChipControl?.ChipLockScore < 60) return null;
-                if (plat.PlatformDays < 3 || plat.PlatformDays > 10) return null;
-                if (plat.PlatformRangePercent > 12m) return null;
-                if (signal.RiskScore > 50) return null;
-                if (signal.SupportPrice.HasValue && latestClose < signal.SupportPrice.Value) return null;
-
-                var snapItem = snapshotMap.GetValueOrDefault(s.Code);
-                var price = snapItem?.Price > 0 ? snapItem.Price
-                    : (await _ds.GetRealtimeQuoteAsync(s.Code))?.Price ?? latestClose;
-
-                // 市值已在快照过滤阶段完成（TotalMv == 0 或 < 300亿），此处不再重复查询
-
-                var chipLock = signal.ChipControl?.ChipLockScore ?? 0m;
-                var sectorScore = signal.SectorEmotion?.SectorStrengthScore ?? 50m;
-                var emotionCycle = signal.SectorEmotion?.Cycle.ToString() ?? "";
-                var resonance = signal.SectorResonance;
-                var resonanceScore = resonance?.ResonanceScore ?? 50m;
-
-                if (resonanceScore < 40 && resonance?.IsIndependentPump == true) return null;
+                // 宽松条件
+                var trendOk = signal.Trend == Trend.Up || (signal.MainUpPlatform?.IsMainUpPlatform == true);
+                var riskOk = signal.RiskScore <= 65;
+                if (!trendOk && !riskOk) { return null; }
 
                 Interlocked.Increment(ref matched);
-                var sectorName = "";
-                var mainstreamResult = sectorResultMap.GetValueOrDefault("全市场");
 
-                var sectorBonus = mainstreamResult?.IsMainstream == true ? 5m
-                    : mainstreamResult?.IsHotSector == true ? 2m
-                    : mainstreamResult?.IsDeclining == true ? -5m : 0m;
+                var price = c.Amount > 0 ? (snapshotMap.GetValueOrDefault(c.Code)?.Price ?? bars[^1].Close) : bars[^1].Close;
+                var plat = signal.MainUpPlatform;
+                var chipLock = signal.ChipControl?.ChipLockScore ?? 0m;
+                var sectorScore = signal.SectorEmotion?.SectorStrengthScore ?? 50m;
 
-                var score = plat.SecondWaveProbability * 0.25m
-                          + plat.LockPositionStrength * 0.20m
-                          + chipLock * 0.20m
-                          + sectorScore * 0.15m
+                // 龙头识别
+                var mainline = mainlines.FirstOrDefault(m => m.SectorName == c.Sector);
+                var leaderPos = MarketContextEngine.IdentifyLeaderRole(
+                    signal, c.Amount, c.ChangePct, mainline, c.SectorRank);
+
+                // 综合评分：板块权重优先
+                var score = (mainline?.HeatScore ?? 50m) * 0.20m
+                          + (plat?.SecondWaveProbability ?? 50m) * 0.15m
+                          + chipLock * 0.15m
+                          + sectorScore * 0.10m
                           + signal.IntradayStrengthScore * 0.10m
                           + (100 - signal.RiskScore) * 0.10m
-                          + sectorBonus;
+                          + (leaderPos.Role == LeaderRole.Leader ? 15m : leaderPos.Role == LeaderRole.Core ? 10m : 0m)
+                          + (signal.Trend == Trend.Up ? 5m : 0m);
 
-                var tier = score >= 80 && plat.SecondWaveProbability >= 75 && chipLock >= 70 && signal.RiskScore <= 40
-                    ? "激进"
-                    : score >= 70 && plat.SecondWaveProbability >= 65 && signal.RiskScore <= 50 ? "重点"
-                    : score >= 60 ? "普通" : null;
-                if (tier == null) return null;
+                var tier = score >= 80 ? "激进"
+                    : score >= 68 ? "重点"
+                    : score >= 50 ? "普通" : null;
+                if (tier == null) { return null; }
 
-                if (mainstreamResult?.IsDeclining == true && tier == "激进") tier = "重点";
-                if (signal.SectorEmotion?.Cycle == SectorEmotionCycle.Decline && tier == "激进") tier = "重点";
-                if (mainstreamResult?.IsHotSector != true && tier == "激进") tier = "重点";
-                if (resonanceScore < 50 && tier == "激进") tier = "重点";
-                if (resonanceScore < 40 && tier == "重点") tier = "普通";
-
-                bool isValuePool = plat.IsMainUpPlatform
-                    && plat.SecondWaveProbability >= 70 && chipLock >= 70
-                    && signal.SectorEmotion?.Cycle != SectorEmotionCycle.Decline
-                    && resonanceScore >= 70 && resonance?.IsIndependentPump != true
-                    && signal.RiskScore <= 45
-                    && mainstreamResult?.SectorHeatScore >= 70
-                    && mainstreamResult?.IsDeclining != true;
-
-                var rotation = rotations.FirstOrDefault(r => r.SectorName == sectorName);
-
-                return new WatchPoolItem
+                var item = new WatchPoolItem
                 {
-                    Code = s.Code, Name = s.Name, Price = price,
-                    MarketCap = snapItem?.TotalMv > 0 ? snapItem.TotalMv / 1_0000_0000m : null,
-                    Sector = sectorName,
-                    WatchPoolScore = Math.Round(score, 1),
-                    SecondWaveProbability = plat.SecondWaveProbability,
-                    LockPositionStrength = plat.LockPositionStrength,
-                    ChipLockScore = chipLock, SectorEmotion = emotionCycle,
+                    Code = c.Code, Name = c.Name, Price = price,
+                    Sector = c.Sector, WatchPoolScore = Math.Round(score, 1),
+                    SecondWaveProbability = plat?.SecondWaveProbability ?? 0,
+                    LockPositionStrength = plat?.LockPositionStrength ?? 0,
+                    ChipLockScore = chipLock,
                     RiskScore = signal.RiskScore, Decision = signal.Decision, Tier = tier,
-                    ResonanceScore = resonanceScore,
-                    SectorRisingCount = resonance?.SectorRisingCount ?? 0,
-                    SectorLimitUpCount = resonance?.SectorLimitUpCount ?? 0,
-                    IsIndependentPump = resonance?.IsIndependentPump ?? false,
-                    IsFakeBreakoutRisk = resonance?.IsFakeBreakoutRisk ?? false,
-                    IsValuePool = isValuePool,
-                    SectorHeatScore = mainstreamResult?.SectorHeatScore ?? 0,
-                    IsMainstreamSector = mainstreamResult?.IsMainstream ?? false,
-                    IsSectorDeclining = mainstreamResult?.IsDeclining ?? false,
-                    SectorRotationNote = rotation?.Summary ?? "",
-                    Reason = BuildReason(signal, plat, emotionCycle, resonance, sectorName, mainstreamResult),
-                    RiskWarning = BuildWarning(signal, emotionCycle, resonance, mainstreamResult)
+                    ResonanceScore = signal.SectorResonance?.ResonanceScore ?? 50m,
+                    LeaderRole = leaderPos.Role, SectorRank = c.SectorRank,
+                    SectorEmotionLabel = leaderPos.SectorEmotionLabel,
+                    IsMarketLeader = leaderPos.IsMarketLeader,
+                    LeaderReason = leaderPos.LeaderReason,
+                    IsValuePool = leaderPos.Role is LeaderRole.Leader or LeaderRole.Core && score >= 75,
+                    SectorHeatScore = mainline?.HeatScore ?? 0,
+                    IsMainstreamSector = (mainline?.HeatScore ?? 0) >= 80,
+                    IsSectorDeclining = false,
+                    Reason = $"板块[{c.Sector}]热度{mainline?.HeatScore ?? 0:F0}，排名{c.SectorRank}/{totalCount}，" +
+                             $"趋势{signal.Trend}，风险{signal.RiskScore}分",
+                    RiskWarning = signal.IsOverextended ? "高位偏离，追涨风险" : ""
                 };
+
+                // 风险标签
+                var tags = _riskTag.Evaluate(bars, signal, null, (decimal?)null);
+                if (tags.Any(t => t.Severity >= 2))
+                {
+                    item.RiskTags = tags.Where(t => t.Severity >= 2).ToList();
+                    if (item.RiskTags.Any(t => t.Severity >= 3)) item.WatchPoolScore *= 0.85m;
+                    else item.WatchPoolScore *= 0.92m;
+                }
+                if (item.WatchPoolScore < 45) return null;
+
+                UpdateScanProgress(scanId, done, totalCount, matched, filtered, failed,
+                    c.Name, c.Sector, _ds.Status.CurrentSource, failedSources, "Running");
+                return item;
             }
             catch { Interlocked.Increment(ref failed); return null; }
             finally { semaphore.Release(); }
@@ -193,19 +302,23 @@ public class DailyWatchPoolService
         var items = all.Where(x => x != null).Cast<WatchPoolItem>()
             .OrderByDescending(x => x.WatchPoolScore).ToList();
 
-        var aggressive = items.Where(x => x.Tier == "激进").Take(5).ToList();
-        var key = items.Where(x => x.Tier == "重点").Take(10).ToList();
-        var normal = items.Where(x => x.Tier == "普通").Take(15).ToList();
+        // 分类
+        var leaders = items.Where(x => x.LeaderRole is LeaderRole.Leader or LeaderRole.Core).Take(5).ToList();
+        var followers = items.Where(x => x.LeaderRole is LeaderRole.Follower or LeaderRole.CatchUp).Take(8).ToList();
+        var others = items.Where(x => !leaders.Contains(x) && !followers.Contains(x)).Take(7).ToList();
 
-        var final = aggressive.Concat(key).Concat(normal)
-            .OrderByDescending(x => x.WatchPoolScore).Take(30).ToList();
+        var final = leaders.Concat(followers).Concat(others)
+            .OrderByDescending(x => x.WatchPoolScore).Take(20).ToList();
         for (int i = 0; i < final.Count; i++) final[i].Rank = i + 1;
 
-        await UpdateCacheAsync(final, cache);
-
         var elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
-        var completedRate = totalCount > 0 ? (double)(scanned + failed + filtered) / totalCount : 0;
-        var estimatedRemaining = completedRate > 0.01 ? elapsed / completedRate - elapsed : 0;
+        Console.WriteLine($"[WatchPool] === 完成 {DateTime.Now:HH:mm:ss} ===");
+        Console.WriteLine($"[WatchPool] 主线板块: {mainlines.Count}, 候选: {uniqueCandidates.Count}, 命中: {matched}, 入选: {final.Count}");
+        Console.WriteLine($"[WatchPool] 龙头/中军: {leaders.Count}, 跟风/补涨: {followers.Count}, 耗时: {elapsed:F1}s");
+
+        UpdateScanProgress(scanId, totalCount, totalCount, matched, filtered, failed,
+            "完成", string.Join(",", mainlines.Take(3).Select(m => m.SectorName)),
+            _ds.Status.CurrentSource, failedSources, "Completed");
 
         var result = new WatchPoolResult
         {
@@ -215,33 +328,74 @@ public class DailyWatchPoolService
             FailedCount = failed,
             FilteredCount = filtered,
             MatchedCount = matched,
-            CurrentStockCode = candidates.Count > 0 ? candidates[0].Code : null,
             CurrentStockName = currentStock,
             ElapsedSeconds = Math.Round(elapsed, 1),
-            EstimatedRemainingSeconds = Math.Round(estimatedRemaining, 1),
-            Top10Sectors = top10.Select(x => x.Item2).ToList(),
-            SectorRotations = rotations,
             DataSourceName = _ds.Status.CurrentSource,
             DataSourceFailCount = _ds.Status.FailCount,
             UsingCache = _ds.Status.UsingCache,
             SkippedCount = _ds.Status.SkippedCount,
-            DataSourceWarnings = _ds.Status.Warnings
+            DataSourceWarnings = _ds.Status.Warnings,
+            MainlineSectors = mainlines,
+            MarketEmotion = marketCtxResult.EmotionCycle,
+            MarketSummary = marketCtxResult.MarketSummary
         };
         await SaveLogAsync(result);
         return result;
     }
 
-    /// <summary>用快照数据直接评估板块热度（不拉K线，速度快）</summary>
+    // ═══════════════════════════════════════════════════════════════
+    // 辅助方法
+    // ═══════════════════════════════════════════════════════════════
+
+    private static WatchPoolResult EmptyResult(string msg, string? scanId)
+    {
+        Console.WriteLine($"[WatchPool] 终止: {msg}");
+        UpdateScanProgress(scanId, 0, 0, 0, 0, 0, "-", "-", "-", 0, "Failed");
+        if (scanId != null && ScanProgresses.TryGetValue(scanId, out var sp))
+            ScanProgresses[scanId] = sp with { Message = msg, Status = "Failed" };
+        return new WatchPoolResult
+        {
+            Items = [], TotalCount = 0, ScannedCount = 0, FailedCount = 0, FilteredCount = 0, MatchedCount = 0,
+            ElapsedSeconds = 0, DataSourceName = "无", DataSourceFailCount = 1,
+            DataSourceWarnings = new List<string> { msg },
+            MarketSummary = msg
+        };
+    }
+
+    private static List<MainlineSector> BuildMainlines(
+        List<(string, MainstreamSectorResult)> results, int totalSectors)
+    {
+        return results
+            .Where(r => r.Item2.SectorHeatScore > 0)
+            .Select(r =>
+            {
+                var emotion = r.Item2.SectorHeatScore >= 80 ? MarketEmotionCycle.Climax
+                    : r.Item2.SectorHeatScore >= 65 ? MarketEmotionCycle.Ferment
+                    : r.Item2.IsDeclining ? MarketEmotionCycle.Decline
+                    : MarketEmotionCycle.Launch;
+                return new MainlineSector(
+                    r.Item1, r.Item2.SectorHeatScore, 0,
+                    r.Item2.LimitUpCount, r.Item2.RisingCount, 0,
+                    r.Item2.SectorContinuity, emotion, "", ""
+                );
+            })
+            .OrderByDescending(m => m.HeatScore)
+            .ToList();
+    }
+
+    /// <summary>用快照数据评估板块热度</summary>
     private static MainstreamSectorResult EvaluateSectorFromSnapshot(string sector, List<MarketSnapshotItem> snaps)
     {
+        if (snaps.Count == 0)
+            return new MainstreamSectorResult(sector, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false, false, "无数据");
+
         int total = snaps.Count, rising = 0, falling = 0, limitUp = 0, strong = 0;
         decimal sumGain = 0, maxGain = 0;
         foreach (var s in snaps)
         {
             var gain = s.ChangePct / 100m;
             sumGain += gain;
-            if (gain > 0) rising++;
-            else if (gain < 0) falling++;
+            if (gain > 0) rising++; else if (gain < 0) falling++;
             if (gain >= 0.095m) { limitUp++; strong++; }
             else if (gain >= 0.03m) strong++;
             if (gain > maxGain) maxGain = gain;
@@ -257,44 +411,118 @@ public class DailyWatchPoolService
             + Math.Min((decimal)limitUp / total * 100 * 3, 100) * 0.15m
             + leaderStrength * 0.20m + capitalFlow * 0.15m
             + (decimal)strong / total * 100 * 0.15m + trendStrength * 0.15m, 0, 100);
-
         bool isMainstream = heatScore >= 80, isHot = heatScore >= 65;
         bool isDeclining = risingRatio < 0.3m || (limitUp == 0 && avgGain < -0.005m);
         var summary = isMainstream ? $"主线板块，上涨{rising}/{total}只，涨停{limitUp}只"
             : isDeclining ? $"板块退潮，热度{heatScore:F0}分" : $"板块热度{heatScore:F0}分";
-
         return new MainstreamSectorResult(sector, Math.Round(heatScore, 1), Math.Round(capitalFlow, 1),
             Math.Round(trendStrength, 1), Math.Round(continuity, 1), Math.Round(leaderStrength, 1),
             rising, falling, limitUp, strong, isMainstream, isHot, isDeclining, summary);
     }
 
-    private static string BuildReason(StockSignal s, MainUpPlatformResult plat, string emotion,
-        SectorResonanceResult? resonance, string sectorName, MainstreamSectorResult? mainstream)
+    // ═══════════════════════════════════════════════════════════════
+    // 本地 CSV 降级扫描
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<WatchPoolResult?> ScanLocalCsvFiles(
+        List<StockBar>? marketBars, bool fullMarket, List<string>? targetSectors,
+        string? scanId, DateTime startTime, CancellationToken ct)
     {
-        var label = emotion switch {
-            "Recovery" => "修复", "Consensus" => "一致", "Climax" => "高潮",
-            "Divergence" => "分歧", "Decline" => "退潮", _ => "中性"
+        var csvDir = Path.Combine(_dataDir, "SystemStocks");
+        if (!Directory.Exists(csvDir)) { Console.WriteLine($"[WatchPool] CSV目录不存在: {csvDir}"); return null; }
+
+        var csvFiles = Directory.GetFiles(csvDir, "*.csv");
+        var candidates = new List<(string Code, string Name)>();
+        foreach (var file in csvFiles)
+        {
+            var code = Path.GetFileNameWithoutExtension(file);
+            if (code.Length == 6 && SecurityTypeFilter.IsCommonAStock(code).IsValid)
+                candidates.Add((code, code));
+        }
+
+        candidates = candidates.OrderBy(x => Guid.NewGuid()).Take(300).ToList();
+        if (candidates.Count == 0) return null;
+
+        int scanned = 0, failed = 0, filtered = 0, matched = 0, done = 0;
+        int totalCount = candidates.Count;
+        string? currentStock = null;
+        var semaphore = new SemaphoreSlim(8);
+
+        UpdateScanProgress(scanId, 0, totalCount, 0, 0, 0, "准备中(本地CSV)", "本地缓存", "本地CSV", 0, "Running");
+
+        var tasks = candidates.Select(async s =>
+        {
+            await semaphore.WaitAsync(ct);
+            try
+            {
+                Interlocked.Exchange(ref currentStock, s.Name);
+                var csvPath = Path.Combine(csvDir, $"{s.Code}.csv");
+                List<StockBar>? bars = null;
+                try { bars = new DataImporter().ImportCsv(csvPath, s.Code, s.Code); } catch { }
+
+                Interlocked.Increment(ref done);
+                if (bars == null || bars.Count < 60) { Interlocked.Increment(ref filtered); return null; }
+
+                Interlocked.Increment(ref scanned);
+                var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars);
+                var signal = signals.FirstOrDefault();
+                if (signal == null) return null;
+
+                var trendOk = signal.Trend == Trend.Up || (signal.MainUpPlatform?.IsMainUpPlatform == true);
+                var riskOk = signal.RiskScore <= 65;
+                if (!trendOk && !riskOk) return null;
+
+                Interlocked.Increment(ref matched);
+                var score = (signal.MainUpPlatform?.SecondWaveProbability ?? 50m) * 0.2m
+                          + (signal.ChipControl?.ChipLockScore ?? 50m) * 0.2m
+                          + (signal.SectorEmotion?.SectorStrengthScore ?? 50m) * 0.15m
+                          + signal.IntradayStrengthScore * 0.15m
+                          + (100 - signal.RiskScore) * 0.15m
+                          + (signal.Trend == Trend.Up ? 10m : 0m);
+
+                if (score < 50) return null;
+
+                return new WatchPoolItem
+                {
+                    Code = s.Code, Name = s.Code, Price = bars[^1].Close,
+                    WatchPoolScore = Math.Round(score, 1),
+                    SecondWaveProbability = signal.MainUpPlatform?.SecondWaveProbability ?? 0,
+                    ChipLockScore = signal.ChipControl?.ChipLockScore ?? 0,
+                    RiskScore = signal.RiskScore, Decision = signal.Decision,
+                    Tier = score >= 75 ? "激进" : score >= 65 ? "重点" : "普通",
+                    Reason = $"本地缓存: 趋势{signal.Trend}, 风险{signal.RiskScore}分",
+                    RiskWarning = "本地缓存数据，建议启动AKShare获取实时数据",
+                    LeaderRole = LeaderRole.Edge, SectorEmotionLabel = "-"
+                };
+            }
+            catch { Interlocked.Increment(ref failed); return null; }
+            finally { semaphore.Release(); }
+        });
+
+        var all = await Task.WhenAll(tasks);
+        var items = all.Where(x => x != null).Cast<WatchPoolItem>()
+            .OrderByDescending(x => x.WatchPoolScore).Take(20).ToList();
+        for (int i = 0; i < items.Count; i++) items[i].Rank = i + 1;
+
+        var elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
+        Console.WriteLine($"[WatchPool] 本地CSV完成: {items.Count}只, {elapsed:F1}s");
+
+        var result = new WatchPoolResult
+        {
+            Items = items, TotalCount = totalCount, ScannedCount = scanned,
+            FailedCount = failed, FilteredCount = filtered, MatchedCount = matched,
+            ElapsedSeconds = Math.Round(elapsed, 1),
+            DataSourceName = "本地CSV",
+            DataSourceWarnings = new List<string> { "数据来源: 本地CSV缓存，非实时数据" },
+            MarketSummary = "无市场数据（本地CSV模式）"
         };
-        var sectorNote = mainstream?.IsMainstream == true
-            ? $"属于当前市场主线板块【{sectorName}】，板块热度{mainstream.SectorHeatScore:F0}分，"
-            : !string.IsNullOrEmpty(sectorName) ? $"所属板块【{sectorName}】，" : "";
-        var resonanceNote = resonance?.IsSectorResonance == true
-            ? $"，板块共振（{resonance.ResonanceScore:F0}分）" : "";
-        return $"{sectorNote}该股近期已形成主升浪，平台横盘{plat.PlatformDays}日缩量整理，" +
-               $"筹码锁定分{s.ChipControl?.ChipLockScore:F0}，二波概率{plat.SecondWaveProbability:F0}%，" +
-               $"板块处于{label}阶段{resonanceNote}，适合加入明日观察池。";
+        await SaveLogAsync(result);
+        return result;
     }
 
-    private static string BuildWarning(StockSignal s, string emotion,
-        SectorResonanceResult? resonance, MainstreamSectorResult? mainstream)
-    {
-        if (mainstream?.IsDeclining == true) return "该股所属板块正在退潮，资金撤离，谨慎参与。";
-        if (resonance?.IsIndependentPump == true) return "该股当前上涨缺乏板块支撑，疑似主力自救或诱多，谨慎追高。";
-        if (resonance?.IsFakeBreakoutRisk == true) return "该股存在诱多/尾盘偷拉风险，建议观察，不适合追高。";
-        if (s.RiskScore > 40 || emotion is "Decline" or "Divergence")
-            return "该股虽有主升平台结构，但板块分歧较大或风险分偏高，只适合观察，不适合追高。";
-        return "";
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // 持久化
+    // ═══════════════════════════════════════════════════════════════
 
     private async Task UpdateCacheAsync(List<WatchPoolItem> newItems, List<CandidateStockItem> existingCache)
     {
@@ -305,25 +533,16 @@ public class DailyWatchPoolService
             {
                 existing.ConsecutiveAppearDays++;
                 existing.LastScore = item.WatchPoolScore;
-                existing.LastDecision = item.Decision.ToString();
                 existing.LastAnalyzeTime = DateTime.Today;
                 existing.IsPreviousWatchPool = true;
-                existing.IsPreviousValuePool = item.IsValuePool;
-                existing.ResonanceScore = item.ResonanceScore;
-                existing.ChipLockScore = item.ChipLockScore;
-                existing.MainUpPlatformScore = item.SecondWaveProbability;
-                existing.Sector = item.Sector;
             }
             else
             {
                 cacheMap[item.Code] = new CandidateStockItem
                 {
-                    StockCode = item.Code, StockName = item.Name, Sector = item.Sector,
-                    LastScore = item.WatchPoolScore, LastDecision = item.Decision.ToString(),
-                    LastAnalyzeTime = DateTime.Today, ConsecutiveAppearDays = 1,
-                    IsPreviousWatchPool = true, IsPreviousValuePool = item.IsValuePool,
-                    ResonanceScore = item.ResonanceScore, ChipLockScore = item.ChipLockScore,
-                    MainUpPlatformScore = item.SecondWaveProbability
+                    StockCode = item.Code, StockName = item.Name,
+                    LastScore = item.WatchPoolScore, LastAnalyzeTime = DateTime.Today,
+                    ConsecutiveAppearDays = 1, IsPreviousWatchPool = true
                 };
             }
         }
@@ -338,14 +557,6 @@ public class DailyWatchPoolService
         if (!File.Exists(_cachePath)) return [];
         try { return JsonSerializer.Deserialize<List<CandidateStockItem>>(await File.ReadAllTextAsync(_cachePath)) ?? []; }
         catch { return []; }
-    }
-
-    private async Task<Dictionary<string, decimal>> LoadPreviousSectorScoresAsync()
-    {
-        var history = await LoadHistoryAsync();
-        var latest = history.FirstOrDefault();
-        if (latest?.Top10Sectors == null) return [];
-        return latest.Top10Sectors.ToDictionary(s => s.SectorName, s => s.SectorHeatScore);
     }
 
     public async Task<List<WatchPoolResult>> LoadHistoryAsync()

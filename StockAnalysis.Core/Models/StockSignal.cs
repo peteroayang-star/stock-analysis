@@ -203,4 +203,20 @@ public class StockSignal
     public ChipControlResult? ChipControl { get; set; }
     /// <summary>板块共振分析结果</summary>
     public SectorResonanceResult? SectorResonance { get; set; }
+    /// <summary>情绪活跃（非龙头，仅活跃）</summary>
+    public bool IsEmotionActive { get; set; }
+    /// <summary>位置等级：低位/中位/高位</summary>
+    public PositionLevel PositionLevel { get; set; }
+    /// <summary>详细趋势阶段</summary>
+    public DetailedTrendStage DetailedStage { get; set; }
+    /// <summary>距离MA5偏离率(%)</summary>
+    public decimal DistFromMA5 { get; set; }
+    /// <summary>距离MA20偏离率(%)</summary>
+    public decimal DistFromMA20 { get; set; }
+    /// <summary>是否过度延伸(偏离过大/爆量)</summary>
+    public bool IsOverextended { get; set; }
+    /// <summary>加速状态</summary>
+    public AccelerationState AccelerationState { get; set; }
+    /// <summary>统一展示标签(位置+风险+阶段)</summary>
+    public string UnifiedLabel { get; set; } = "";
 }

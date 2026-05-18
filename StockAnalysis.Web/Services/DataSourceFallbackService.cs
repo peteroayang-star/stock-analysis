@@ -28,8 +28,7 @@ public class DataSourceStatus
 public class DataSourceFallbackService
 {
     private readonly AkShareDataService _akShare;
-    private readonly TencentRealTimeService _tencent;
-    private readonly DataImporter _importer;
+    private readonly ProviderRouter _router;
     private readonly string _dataDir;
 
     // 内存缓存：全市场快照（交易时间内3分钟有效，非交易时间到次日开盘）
@@ -41,12 +40,11 @@ public class DataSourceFallbackService
 
     public DataSourceStatus Status { get; } = new();
 
-    public DataSourceFallbackService(AkShareDataService akShare, TencentRealTimeService tencent,
-        DataImporter importer, IWebHostEnvironment env)
+    public DataSourceFallbackService(AkShareDataService akShare, ProviderRouter router,
+        IWebHostEnvironment env)
     {
         _akShare = akShare;
-        _tencent = tencent;
-        _importer = importer;
+        _router = router;
         _dataDir = Path.Combine(env.ContentRootPath, "..", "Data");
         _sectorCachePath = Path.Combine(_dataDir, "sector_cache.json");
         Directory.CreateDirectory(_dataDir);
@@ -92,34 +90,39 @@ public class DataSourceFallbackService
         }
     }
 
-    /// <summary>获取单股实时行情：AKShare → 腾讯 → null</summary>
+    /// <summary>获取单股实时行情：腾讯 → 新浪兜底</summary>
     public async Task<RealTimeQuote?> GetRealtimeQuoteAsync(string code)
     {
-        // 快照仅有价格和涨跌幅，无真实OHLC数据，不伪造K线
-        // 跳过快照查询，直接走腾讯接口获取完整行情
-
-        // 腾讯接口
-        try
+        var result = await _router.GetRealtimeAsync(code);
+        if (result.Success && result.Data != null)
         {
-            var qt = await _tencent.GetAsync(code);
-            if (qt != null) { Status.CurrentSource = "腾讯"; return qt; }
+            Status.CurrentSource = result.SourceName;
+            return result.Data;
         }
-        catch (Exception ex) { Status.Warn($"腾讯行情失败[{code}]: {ex.Message}"); }
 
+        // 同步失败计数
+        foreach (var (source, count) in _router.FailCounts)
+        {
+            if (count > 0) Status.Warn($"实时行情[{source}]失败[{code}]");
+        }
         Status.SkippedCount++;
         return null;
     }
 
-    /// <summary>获取历史K线：本地缓存 → AKShare → 跳过</summary>
+    /// <summary>获取历史K线：ProviderRouter（本地CSV → AKShare）</summary>
     public async Task<List<StockBar>?> GetHistoryBarsAsync(string code, string name)
     {
-        try
+        var result = await _router.GetBarsAsync(code);
+        if (result.Success && result.Data != null)
         {
-            var bars = await _akShare.TryGetBarsAsync(code, name);
-            if (bars != null) return bars;
+            Status.CurrentSource = result.SourceName;
+            return result.Data;
         }
-        catch (Exception ex) { Status.Warn($"历史K线失败[{code}]: {ex.Message}"); }
 
+        foreach (var (source, count) in _router.FailCounts)
+        {
+            if (count > 0) Status.Warn($"历史K线[{source}]失败[{code}]");
+        }
         Status.SkippedCount++;
         return null;
     }

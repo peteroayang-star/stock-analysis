@@ -4,6 +4,16 @@ using StockAnalysis.Web.Services;
 
 namespace StockAnalysis.Web.Models;
 
+public static class RiskTagDisplay
+{
+    public static string CssClass(RiskTag tag) => tag.Severity switch
+    {
+        3 => "bg-danger",
+        2 => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+}
+
 public class SignalWithSuggestion
 {
     public StockSignal Signal { get; set; } = null!;
@@ -54,6 +64,36 @@ public class WatchPoolItem
     public bool IsMainstreamSector { get; set; }
     public bool IsSectorDeclining { get; set; }
     public string SectorRotationNote { get; set; } = "";
+    public List<RiskTag> RiskTags { get; set; } = [];
+    public bool HasHighRisk => RiskTags.Any(t => t.Severity >= 2);
+    public string RiskTagSummary => string.Join("; ", RiskTags.Select(t => t.Label));
+    // 龙头地位
+    public LeaderRole LeaderRole { get; set; }
+    public int SectorRank { get; set; }
+    public string SectorEmotionLabel { get; set; } = "";
+    public bool IsMarketLeader { get; set; }
+    public string LeaderReason { get; set; } = "";
+}
+
+public static class LeaderRoleDisplay
+{
+    public static string Label(LeaderRole r) => r switch
+    {
+        LeaderRole.Leader   => "龙头",
+        LeaderRole.Core     => "中军",
+        LeaderRole.Follower => "跟风",
+        LeaderRole.CatchUp  => "补涨",
+        LeaderRole.Edge     => "边缘",
+        _ => ""
+    };
+    public static string BadgeClass(LeaderRole r) => r switch
+    {
+        LeaderRole.Leader   => "bg-danger",
+        LeaderRole.Core     => "bg-warning text-dark",
+        LeaderRole.Follower => "bg-info",
+        LeaderRole.CatchUp  => "bg-success",
+        _                   => "bg-secondary"
+    };
 }
 
 public class WatchPoolResult
@@ -78,6 +118,30 @@ public class WatchPoolResult
     public bool UsingCache { get; set; }
     public int SkippedCount { get; set; }
     public List<string> DataSourceWarnings { get; set; } = [];
+    // 市场上下文
+    public List<MainlineSector> MainlineSectors { get; set; } = [];
+    public MarketEmotionCycle MarketEmotion { get; set; }
+    public string MarketSummary { get; set; } = "";
+    public string MarketEmotionLabel => MarketEmotion switch
+    {
+        MarketEmotionCycle.Launch  => "启动",
+        MarketEmotionCycle.Ferment => "发酵",
+        MarketEmotionCycle.Climax  => "高潮",
+        MarketEmotionCycle.Diverge => "分歧",
+        MarketEmotionCycle.Decline => "退潮",
+        _ => "-"
+    };
+    public bool HasSectorData => MainlineSectors.Count > 0;
+}
+
+/// <summary>机会池扫描进度（供前端轮询）</summary>
+public record ScanProgress(
+    int Processed, int Total, int Matched, int Filtered, int Failed,
+    string CurrentStock, string CurrentSector, string CurrentSource,
+    int FailedSources, string Status, string? Message, DateTime UpdatedAt)
+{
+    public bool IsDone => Status == "Completed" || Status == "Failed";
+    public int Percent => Total > 0 ? (int)((double)Processed / Total * 100) : 0;
 }
 
 public class ScreenerResultItem

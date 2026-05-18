@@ -4,24 +4,54 @@
 @{
     ViewData["Title"] = "机会池结果";
     string TierClass(string t) => t == "激进" ? "danger" : t == "重点" ? "warning" : "secondary";
-    string EmotionLabel(string c) => c switch {
-        "Climax" => "高潮", "Consensus" => "一致", "Divergence" => "分歧",
-        "Recovery" => "修复", "Decline" => "退潮", "IcePoint" => "冰点", _ => "-"
-    };
     string RiskClass(int s) => s <= 30 ? "text-success fw-bold" : s <= 50 ? "text-warning fw-bold" : "text-danger fw-bold";
-    string ResClass(decimal r) => r >= 75 ? "text-success fw-bold" : r >= 50 ? "text-warning fw-bold" : "text-danger fw-bold";
     string HeatClass(decimal h) => h >= 80 ? "text-success fw-bold" : h >= 65 ? "text-warning fw-bold" : "text-muted";
-    var valueItems = Model.Items.Where(x => x.IsValuePool).ToList();
+    var leaders = Model.Items.Where(x => x.LeaderRole is LeaderRole.Leader or LeaderRole.Core).ToList();
+    string EmotionBadgeClass(MarketEmotionCycle e) => e switch {
+        MarketEmotionCycle.Climax => "bg-danger", MarketEmotionCycle.Ferment => "bg-warning text-dark",
+        MarketEmotionCycle.Launch => "bg-success", _ => "bg-secondary"
+    };
+}
+
+@* ── 市场上下文 ── *@
+@if (Model.HasSectorData)
+{
+    <div class="card mb-3 border-primary">
+        <div class="card-header py-2 d-flex align-items-center gap-2">
+            <strong>今日市场</strong>
+            <span class="badge @EmotionBadgeClass(Model.MarketEmotion)">@Model.MarketEmotionLabel</span>
+            <span class="text-muted small ms-auto">@Model.MarketSummary</span>
+        </div>
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <span class="small fw-bold">主线板块:</span>
+                @foreach (var sec in Model.MainlineSectors.Take(5))
+                {
+                    <span class="badge bg-light text-dark border">
+                        @sec.SectorName
+                        <span class="@HeatClass(sec.HeatScore)">@sec.HeatScore.ToString("F0")</span>
+                    </span>
+                }
+                @if (leaders.Any())
+                {
+                    <span class="ms-2 small text-muted">| 龙头: @string.Join("、", leaders.Take(3).Select(x => $"{x.Name}({x.Code})"))</span>
+                }
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="alert alert-warning py-2 mb-3 small">暂无板块数据 — 以下结果来自个股筛选</div>
 }
 
 <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
     <h4 class="mb-0">机会池 · @Model.Date.ToString("yyyy-MM-dd")</h4>
     <span class="text-muted small">
         扫描 @Model.ScannedCount 只 &nbsp;|&nbsp;
-        失败 @Model.FailedCount 只 &nbsp;|&nbsp;
-        过滤 @Model.FilteredCount 只 &nbsp;|&nbsp;
-        入选 <strong>@Model.Items.Count</strong> 只
-        @if (valueItems.Any()) { <span>&nbsp;|&nbsp; 价值池 <strong class="text-success">@valueItems.Count</strong> 只</span> }
+        入选 <strong>@Model.Items.Count</strong> 只 &nbsp;|&nbsp;
+        @if (leaders.Any()) { <span>龙头 <strong class="text-danger">@leaders.Count</strong> 只 &nbsp;|&nbsp;</span> }
+        耗时 @Model.ElapsedSeconds.ToString("F0")s
     </span>
     <div class="ms-auto d-flex gap-2">
         <a href="@Url.Action("ExportCsv", new { date = Model.Date.ToString("yyyy-MM-dd") })" class="btn btn-sm btn-outline-success">导出 CSV</a>
@@ -99,11 +129,11 @@
     </div>
 }
 
-@if (valueItems.Any())
+@if (leaders.Any())
 {
     <div class="alert alert-success py-2 mb-3">
-        <strong>主升浪价值池（@valueItems.Count 只）：</strong>
-        @string.Join("、", valueItems.Select(x => $"{x.Name}({x.Code})"))
+        <strong>板块龙头/中军（@leaders.Count 只）：</strong>
+        @string.Join("、", leaders.Select(x => $"{x.Name}({x.Code})"))
     </div>
 }
 
@@ -119,54 +149,50 @@ else
                 <tr>
                     <th>#</th>
                     <th>代码/名称</th>
+                    <th>地位</th>
                     <th>所属板块</th>
                     <th>当前价</th>
-                    <th>市值(亿)</th>
                     <th>综合分</th>
-                    <th>共振分</th>
-                    <th>二波概率</th>
-                    <th>平台锁仓</th>
-                    <th>筹码锁定</th>
-                    <th>板块情绪</th>
-                    <th>上涨/涨停</th>
-                    <th>风险分</th>
-                    <th>决策</th>
+                    <th>二波</th>
+                    <th>筹码</th>
+                    <th>风险</th>
                     <th>层级</th>
-                    <th>入选理由 / 风险提示</th>
+                    <th>入选理由</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach (var item in Model.Items)
                 {
-                    <tr class="@(item.IsValuePool ? "table-success" : item.IsSectorDeclining ? "table-danger" : "")">
+                    <tr class="@(item.IsMarketLeader ? "table-danger" : item.IsValuePool ? "table-success" : "")">
                         <td class="text-muted">@item.Rank</td>
                         <td>
                             <strong>@item.Code</strong><br/>
                             <span class="text-muted small">@item.Name</span>
-                            @if (item.IsValuePool) { <br/><span class="badge bg-success">价值池</span> }
+                            @if (item.HasHighRisk)
+                            {
+                                foreach (var tag in item.RiskTags)
+                                {
+                                    <br/><span class="badge @RiskTagDisplay.CssClass(tag)" title="@tag.Description">@tag.Label</span>
+                                }
+                            }
+                        </td>
+                        <td>
+                            <span class="badge @LeaderRoleDisplay.BadgeClass(item.LeaderRole)">@LeaderRoleDisplay.Label(item.LeaderRole)</span>
+                            @if (item.IsMarketLeader) { <br/><span class="badge bg-danger">市场龙头</span> }
                         </td>
                         <td class="small">
                             @item.Sector
                             @if (item.IsMainstreamSector) { <br/><span class="badge bg-success">主线</span> }
-                            else if (item.IsSectorDeclining) { <br/><span class="badge bg-danger">退潮</span> }
-                            @if (!string.IsNullOrEmpty(item.SectorRotationNote))
-                            { <br/><span class="text-muted" style="font-size:0.75em">@item.SectorRotationNote</span> }
+                            @if (!string.IsNullOrEmpty(item.SectorEmotionLabel))
+                            { <br/><span class="text-muted" style="font-size:0.75em">@item.SectorEmotionLabel</span> }
                         </td>
                         <td>@item.Price.ToString("F2")</td>
-                        <td>@(item.MarketCap.HasValue ? item.MarketCap.Value.ToString("F0") : "-")</td>
                         <td><strong>@item.WatchPoolScore.ToString("F1")</strong></td>
-                        <td class="@ResClass(item.ResonanceScore)">@item.ResonanceScore.ToString("F0")</td>
                         <td>@item.SecondWaveProbability.ToString("F0")%</td>
-                        <td>@item.LockPositionStrength.ToString("F0")</td>
                         <td>@item.ChipLockScore.ToString("F0")</td>
-                        <td>@EmotionLabel(item.SectorEmotion)</td>
-                        <td class="small">@item.SectorRisingCount / @item.SectorLimitUpCount</td>
                         <td class="@RiskClass(item.RiskScore)">@item.RiskScore</td>
-                        <td>@item.Decision</td>
                         <td><span class="badge bg-@TierClass(item.Tier)">@item.Tier</span></td>
-                        <td class="small text-muted" style="max-width:260px">
-                            @if (item.IsIndependentPump) { <span class="badge bg-danger me-1">孤立拉升</span> }
-                            @if (item.IsFakeBreakoutRisk) { <span class="badge bg-warning text-dark me-1">诱多风险</span> }
+                        <td class="small text-muted" style="max-width:220px">
                             @item.Reason
                             @if (!string.IsNullOrEmpty(item.RiskWarning))
                             { <br/><span class="text-warning">⚠ @item.RiskWarning</span> }

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using StockAnalysis.Core.Engines;
 using StockAnalysis.Core.Models;
 using StockAnalysis.Web.Services;
+using StockAnalysis.Web.Services.Providers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,11 +23,24 @@ builder.Services.AddHttpClient<TencentRealTimeService>().ConfigurePrimaryHttpMes
 builder.Services.AddScoped<TencentRealTimeService>();
 builder.Services.AddHttpClient<FinanceDataService>().ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseProxy = false });
 builder.Services.AddScoped<FinanceDataService>();
+
+// 统一数据源抽象层 (优先级: LocalCSV > TencentKline > AKShare > Tencent实时 > Sina兜底)
+builder.Services.AddScoped<IMarketDataProvider, LocalCsvProvider>();
+builder.Services.AddHttpClient<TencentKlineProvider>().ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseProxy = false });
+builder.Services.AddScoped<IMarketDataProvider, TencentKlineProvider>();
+builder.Services.AddScoped<IMarketDataProvider, AkShareProvider>();
+builder.Services.AddScoped<IMarketDataProvider, TencentRealtimeProvider>();
+builder.Services.AddHttpClient<SinaFallbackProvider>().ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseProxy = false });
+builder.Services.AddScoped<IMarketDataProvider, SinaFallbackProvider>();
+builder.Services.AddScoped<ProviderRouter>();
+
+builder.Services.AddScoped<RiskStockTagEngine>();
 builder.Services.AddScoped<MarketDataService>();
 builder.Services.AddScoped<MarketIndexService>();
 builder.Services.AddSingleton<SignalLogService>();
 builder.Services.AddScoped<DataSourceFallbackService>();
 builder.Services.AddScoped<DailyWatchPoolService>();
+builder.Services.AddSingleton<AiAnalysisCacheService>();
 builder.Services.AddHttpClient<SparkAiService>().ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseProxy = false });
 
 var app = builder.Build();

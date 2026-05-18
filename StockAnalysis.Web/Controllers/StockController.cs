@@ -14,10 +14,14 @@ public class StockController : Controller
     private readonly FinanceDataService _finance;
     private readonly SignalLogService _log;
     private readonly MarketIndexService _marketIndex;
+    private readonly SparkAiService _spark;
+    private readonly AiAnalysisCacheService _aiCache;
     private readonly RiskReasonAnalyzer _reasoner = new();
     private readonly DecisionRanker _ranker = new();
 
-    public StockController(StockAnalyzer analyzer, MarketDataService marketData, TencentRealTimeService realTime, FinanceDataService finance, SignalLogService log, MarketIndexService marketIndex)
+    public StockController(StockAnalyzer analyzer, MarketDataService marketData,
+        TencentRealTimeService realTime, FinanceDataService finance, SignalLogService log,
+        MarketIndexService marketIndex, SparkAiService spark, AiAnalysisCacheService aiCache)
     {
         _analyzer = analyzer;
         _marketData = marketData;
@@ -25,6 +29,8 @@ public class StockController : Controller
         _finance = finance;
         _log = log;
         _marketIndex = marketIndex;
+        _spark = spark;
+        _aiCache = aiCache;
     }
 
     [HttpGet] public IActionResult Index() => View();
@@ -72,6 +78,73 @@ public class StockController : Controller
         if (string.IsNullOrWhiteSpace(stock))
         { ModelState.AddModelError("", "请输入股票名称或代码"); return View(); }
         return await RunAnalysis(stock, partial: false);
+    }
+
+    /// <summary>生成AI解读（默认关闭，仅用户点击按钮时调用）</summary>
+    [HttpPost]
+    public async Task<IActionResult> GenerateAiAnalysis([FromQuery] string stock)
+    {
+        if (string.IsNullOrWhiteSpace(stock))
+            return Json(new { error = "缺少股票代码" });
+
+        // 检查缓存：同一股票同一交易日不重复调用
+        var cached = _aiCache.Get(stock, DateTime.Today);
+        if (cached != null)
+            return Json(new { analysis = cached, cached = true });
+
+        // 重新运行分析获取结构化数据
+        var (bars, error) = await _marketData.TryGetBarsAsync(stock);
+        if (bars == null)
+            return Json(new { error = error ?? "无法获取行情数据" });
+
+        var marketBars = await _marketIndex.GetMarketBarsAsync();
+        var signals = _analyzer.Analyze(bars, TradingMode.Candidate, marketBars, skipAmountFilter: true);
+        var signal = signals.FirstOrDefault();
+        if (signal == null)
+            return Json(new { error = "未检测到有效信号" });
+
+        var structured = BuildStructuredResult(signal);
+        var analysis = await _spark.GenerateAnalysisAsync(structured);
+        if (analysis != null)
+            _aiCache.Set(stock, DateTime.Today, analysis);
+
+        return Json(new { analysis, cached = false });
+    }
+
+    private static StructuredAnalysisResult BuildStructuredResult(StockSignal s)
+    {
+        string RiskLevelText(int score) => score <= 30 ? "低风险" : score <= 50 ? "中风险" : score <= 70 ? "高风险" : "极高风险";
+        string DecisionText(Decision d) => d switch
+        {
+            Decision.Buy => "可以买入", Decision.TryBuy => "尝试买入", Decision.Watch => "观察等待",
+            Decision.Hold => "持有不动", Decision.Reduce => "建议减仓", Decision.Sell => "止损离场",
+            _ => "暂时观望"
+        };
+        string TrendText(Trend t) => t switch
+        {
+            Trend.Up => "上涨偏强", Trend.Down => "下跌偏弱", _ => "震荡中性"
+        };
+
+        return new StructuredAnalysisResult
+        {
+            StockCode = s.Code, StockName = s.Name,
+            TrendState = TrendText(s.Trend),
+            VolumeState = s.VolumeDescription,
+            IntradayState = s.AttackWillDescription,
+            RiskLevel = RiskLevelText(s.RiskScore), RiskScore = s.RiskScore,
+            TrendRisk = s.TrendRisk, VolatilityRisk = s.VolatilityRisk, SentimentRisk = s.SentimentRisk,
+            Decision = DecisionText(s.Decision),
+            SupportPrice = s.SupportPrice ?? 0, StopLossPrice = s.StopLossPrice ?? 0,
+            WatchPrice = s.WatchPrice ?? 0, TargetPrice = s.TargetPrice,
+            CycleStage = s.CycleStage, SectorName = s.SectorEmotion?.SectorName,
+            SectorEmotion = s.SectorEmotion?.Cycle.ToString(),
+            ActionAdvice = s.ActionAdvice, IsEmotionLeader = s.IsEmotionLeader,
+            LimitUpCountIn14Days = s.LimitUpCountIn14Days,
+            SmartMoneyDescription = s.SmartMoneyDescription,
+            MainUpPlatformSummary = s.MainUpPlatform?.Summary,
+            IntradayStrengthScore = s.IntradayStrengthScore,
+            Reasons = s.Reasons
+        };
     }
 
     private async Task<IActionResult> RunAnalysis(string stock, bool partial)
