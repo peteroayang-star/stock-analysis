@@ -6,13 +6,13 @@ echo.
 echo [1/2] Starting AKShare data service (port 5100)...
 start "AKShare-DataService" cmd /k "cd /d %~dp0 && python akshare_server.py"
 echo       Waiting for data service to be ready...
-timeout /t 8 /nobreak >nul
+powershell -Command "Start-Sleep -Seconds 8"
 
 echo.
 echo [2/2] Starting Web app (port 5110)...
 start "StockAnalysis-Web" cmd /k "cd /d %~dp0StockAnalysis.Web && dotnet run"
 echo       Waiting for Web app to be ready...
-timeout /t 5 /nobreak >nul
+powershell -Command "Start-Sleep -Seconds 5"
 
 echo.
 echo ============================================

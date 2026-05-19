@@ -1,31 +1,62 @@
 @model StockAnalysis.Web.Models.SignalWithSuggestion
+@{
+    var fin = Model.Finance;
+    if (fin == null || fin.Periods.Length == 0) return;
 
-@if (Model.Finance != null && Model.Finance.Periods.Length > 0)
-{
-    <div class="layer-finance">
-        <details open>
-            <summary>
-                业绩数据
-                @if (Model.FinanceRiskAdj != 0)
-                {
-                    var adjSign = Model.FinanceRiskAdj > 0 ? "+" : "";
-                    <span class="@(Model.FinanceRiskAdj > 0 ? "l3-value down" : "l3-value up") ms-2">风险调整 @adjSign@Model.FinanceRiskAdj</span>
-                }
-            </summary>
-            <div class="d-flex gap-3 flex-wrap mt-2">
-                @for (int i = 0; i < Model.Finance.Periods.Length; i++)
-                {
-                    var yoy    = Model.Finance.ProfitYoy.Length > i ? Model.Finance.ProfitYoy[i] : double.NaN;
-                    var revYoy = Model.Finance.RevenueYoy.Length > i ? Model.Finance.RevenueYoy[i] : double.NaN;
-                    bool yi = double.IsNaN(yoy) || double.IsInfinity(yoy);
-                    bool ri = double.IsNaN(revYoy) || double.IsInfinity(revYoy);
-                    <div class="finance-card">
-                        <div class="fc-period">@Model.Finance.Periods[i]</div>
-                        <div class="fc-row">净利润 <span class="@(yi?"":"l3-value "+(yoy>0?"up":"down"))">@(yi?"-":$"{yoy:F1}%")</span></div>
-                        <div class="fc-row">营收 <span class="@(ri?"":"l3-value "+(revYoy>0?"up":"down"))">@(ri?"-":$"{revYoy:F1}%")</span></div>
-                    </div>
-                }
-            </div>
-        </details>
-    </div>
+    var revYoy = fin.RevenueYoy.Length > 0 ? fin.RevenueYoy[0] : double.NaN;
+    var prfYoy = fin.ProfitYoy.Length > 0 ? fin.ProfitYoy[0] : double.NaN;
+    var margin = fin.NetMargin.Length > 0 ? fin.NetMargin[0] : double.NaN;
+
+    bool valid(double v) => !double.IsNaN(v) && !double.IsInfinity(v) && Math.Abs(v) < 1000;
+    string yoySign(double v) => v > 0 ? "+" : "";
+
+    string finStatus;
+    if (!valid(prfYoy)) finStatus = "数据不足";
+    else if (prfYoy > 20) finStatus = "改善";
+    else if (prfYoy > 0) finStatus = "稳定";
+    else if (prfYoy > -20) finStatus = "转弱";
+    else finStatus = "承压";
+
+    string statusColor = finStatus switch { "改善" => "#10B981", "转弱" or "承压" => "#EF4444", _ => "#F59E0B" };
 }
+
+<div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:12px 16px;margin-top:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span style="font-size:14px;font-weight:700;color:#E2E8F0">
+            财报速览
+            <span style="font-size:11px;color:#64748B;font-weight:400;margin-left:4px">@fin.Periods[0]</span>
+        </span>
+        <span style="font-size:13px;font-weight:700;color:@statusColor;background:@(statusColor)15;padding:2px 10px;border-radius:4px">
+            财务状态：@finStatus
+        </span>
+    </div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:13px">
+        <div>
+            <span style="color:#64748B">营收同比</span>
+            <span class="@(valid(revYoy) ? (revYoy > 0 ? "l3-value up" : "l3-value down") : "")" style="margin-left:6px;font-weight:700">
+                @(valid(revYoy) ? $"{yoySign(revYoy)}{revYoy:F1}%" : "—")
+            </span>
+        </div>
+        <div>
+            <span style="color:#64748B">利润同比</span>
+            <span class="@(valid(prfYoy) ? (prfYoy > 0 ? "l3-value up" : "l3-value down") : "")" style="margin-left:6px;font-weight:700">
+                @(valid(prfYoy) ? $"{yoySign(prfYoy)}{prfYoy:F1}%" : "—")
+            </span>
+        </div>
+        <div>
+            <span style="color:#64748B">净利率</span>
+            <span style="margin-left:6px;color:#E2E8F0;font-weight:600">
+                @(valid(margin) ? $"{margin:F1}%" : "—")
+            </span>
+        </div>
+        @if (Model.FinanceRiskAdj != 0)
+        {
+            <div>
+                <span style="color:#64748B">风险调整</span>
+                <span style="margin-left:6px;color:@(Model.FinanceRiskAdj > 0 ? "#EF4444" : "#10B981");font-weight:700">
+                    @(Model.FinanceRiskAdj > 0 ? "+" : "")@Model.FinanceRiskAdj
+                </span>
+            </div>
+        }
+    </div>
+</div>

@@ -1,205 +1,245 @@
-@using StockAnalysis.Web.Models
+@model StockAnalysis.Web.Models.WatchPoolResult
 @using StockAnalysis.Core.Engines
-@model WatchPoolResult
 @{
-    ViewData["Title"] = "机会池结果";
-    string TierClass(string t) => t == "激进" ? "danger" : t == "重点" ? "warning" : "secondary";
-    string RiskClass(int s) => s <= 30 ? "text-success fw-bold" : s <= 50 ? "text-warning fw-bold" : "text-danger fw-bold";
-    string HeatClass(decimal h) => h >= 80 ? "text-success fw-bold" : h >= 65 ? "text-warning fw-bold" : "text-muted";
-    var leaders = Model.Items.Where(x => x.LeaderRole is LeaderRole.Leader or LeaderRole.Core).ToList();
-    string EmotionBadgeClass(MarketEmotionCycle e) => e switch {
-        MarketEmotionCycle.Climax => "bg-danger", MarketEmotionCycle.Ferment => "bg-warning text-dark",
-        MarketEmotionCycle.Launch => "bg-success", _ => "bg-secondary"
-    };
+    ViewData["Title"] = "今日机会 · " + Model.Date.ToString("yyyy-MM-dd");
+    var leaders = Model.Items.Where(i => i.LeaderRole is LeaderRole.Leader or LeaderRole.Core).ToList();
+    var topCards = Model.Items.Take(3).ToList();
+    var remainingList = Model.Items.Skip(3).ToList();
+    var dataSourceDot = Model.DataSourceStatusLabel == "实时" ? "🟢" : Model.DataSourceStatusLabel == "部分异常" ? "🔴" : "🟡";
 }
 
-@* ── 市场上下文 ── *@
-@if (Model.HasSectorData)
-{
-    <div class="card mb-3 border-primary">
-        <div class="card-header py-2 d-flex align-items-center gap-2">
-            <strong>今日市场</strong>
-            <span class="badge @EmotionBadgeClass(Model.MarketEmotion)">@Model.MarketEmotionLabel</span>
-            <span class="text-muted small ms-auto">@Model.MarketSummary</span>
-        </div>
-        <div class="card-body py-2">
-            <div class="d-flex flex-wrap gap-2 align-items-center">
-                <span class="small fw-bold">主线板块:</span>
-                @foreach (var sec in Model.MainlineSectors.Take(5))
-                {
-                    <span class="badge bg-light text-dark border">
-                        @sec.SectorName
-                        <span class="@HeatClass(sec.HeatScore)">@sec.HeatScore.ToString("F0")</span>
-                    </span>
-                }
-                @if (leaders.Any())
-                {
-                    <span class="ms-2 small text-muted">| 龙头: @string.Join("、", leaders.Take(3).Select(x => $"{x.Name}({x.Code})"))</span>
-                }
+@* ═══════════ 市场状态栏 ═══════════ *@
+<div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:16px 20px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+            <div>
+                <div style="color:#64748B;font-size:10px;text-transform:uppercase;letter-spacing:1px">市场情绪</div>
+                <span style="font-size:18px;font-weight:700;color:@(Model.MarketEmotion == MarketEmotionCycle.Climax ? "#EF4444" : Model.MarketEmotion == MarketEmotionCycle.Ferment ? "#F59E0B" : Model.MarketEmotion == MarketEmotionCycle.Decline ? "#EF4444" : "#10B981")">
+                    @Model.MarketEmotionLabel
+                </span>
             </div>
+            <div style="color:#1E293B">|</div>
+            <div>
+                <div style="color:#64748B;font-size:10px;text-transform:uppercase;letter-spacing:1px">赚钱效应</div>
+                <span style="font-size:18px;font-weight:700;color:@Model.MarketBreadthColor">@Model.MarketBreadthLabel</span>
+            </div>
+            @if (Model.MainlineSectors.Any())
+            {
+                <div style="color:#1E293B">|</div>
+                <div>
+                    <div style="color:#64748B;font-size:10px;text-transform:uppercase;letter-spacing:1px">主线板块</div>
+                    <span style="font-size:14px;font-weight:600;color:#E2E8F0">
+                        @string.Join(" · ", Model.MainlineSectors.Take(3).Select(m => m.SectorName))
+                    </span>
+                </div>
+            }
+        </div>
+        <div style="display:flex;align-items:center;gap:14px">
+            <div style="text-align:center">
+                <div style="color:#64748B;font-size:10px">涨停</div>
+                <div style="font-size:16px;font-weight:700;color:#EF4444">@Model.MarketLimitUpCount</div>
+            </div>
+            <div style="text-align:center">
+                <div style="color:#64748B;font-size:10px">跌停</div>
+                <div style="font-size:16px;font-weight:700;color:#10B981">@Model.MarketLimitDownCount</div>
+            </div>
+            <div style="text-align:center">
+                <div style="color:#64748B;font-size:10px">上涨</div>
+                <div style="font-size:16px;font-weight:700;color:#EF4444">@Model.MarketRisingCount</div>
+            </div>
+            <div style="text-align:center">
+                <div style="color:#64748B;font-size:10px">下跌</div>
+                <div style="font-size:16px;font-weight:700;color:#10B981">@Model.MarketFallingCount</div>
+            </div>
+            <div style="color:#1E293B">|</div>
+            <div style="text-align:center" title="数据源: @Model.DataSourceName">
+                <div style="color:#64748B;font-size:10px">数据</div>
+                <div style="font-size:14px">@dataSourceDot @Model.DataSourceStatusLabel</div>
+            </div>
+        </div>
+    </div>
+    @if (!string.IsNullOrEmpty(Model.MarketSummary))
+    {
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #1E293B;color:#94A3B8;font-size:13px">
+            @Model.MarketSummary
+        </div>
+    }
+</div>
+
+@if (!Model.Items.Any())
+{
+    <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:40px;text-align:center;color:#64748B">
+        <div style="font-size:48px;margin-bottom:12px">--</div>
+        <div style="font-size:16px">今日未发现符合条件的候选股</div>
+        <div style="font-size:13px;margin-top:4px;color:#475569">
+            扫描 @Model.ScannedCount 只，命中 @Model.MatchedCount 只，入选 0 只 · 耗时 @Model.ElapsedSeconds.ToString("F0")s
         </div>
     </div>
 }
 else
 {
-    <div class="alert alert-warning py-2 mb-3 small">暂无板块数据 — 以下结果来自个股筛选</div>
-}
-
-<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
-    <h4 class="mb-0">机会池 · @Model.Date.ToString("yyyy-MM-dd")</h4>
-    <span class="text-muted small">
-        扫描 @Model.ScannedCount 只 &nbsp;|&nbsp;
-        入选 <strong>@Model.Items.Count</strong> 只 &nbsp;|&nbsp;
-        @if (leaders.Any()) { <span>龙头 <strong class="text-danger">@leaders.Count</strong> 只 &nbsp;|&nbsp;</span> }
-        耗时 @Model.ElapsedSeconds.ToString("F0")s
-    </span>
-    <div class="ms-auto d-flex gap-2">
-        <a href="@Url.Action("ExportCsv", new { date = Model.Date.ToString("yyyy-MM-dd") })" class="btn btn-sm btn-outline-success">导出 CSV</a>
-        <a asp-action="Index" class="btn btn-sm btn-outline-secondary">返回</a>
-    </div>
-</div>
-
-@* ── 数据源状态 ── *@
-<div class="alert @(Model.DataSourceFailCount > 0 ? "alert-warning" : "alert-info") py-2 mb-3 small">
-    <strong>数据源：</strong>@Model.DataSourceName &nbsp;|&nbsp;
-    <strong>接口失败：</strong>@Model.DataSourceFailCount 次 &nbsp;|&nbsp;
-    <strong>已跳过：</strong>@Model.SkippedCount 只 &nbsp;|&nbsp;
-    @if (Model.UsingCache) { <span class="text-warning fw-bold">使用缓存数据</span> }
-    else { <span class="text-success">实时数据</span> }
-    @if (Model.DataSourceWarnings.Any())
-    {
-        <br/>
-        <span class="text-muted">@string.Join(" / ", Model.DataSourceWarnings.Take(3))</span>
-    }
-</div>
-
-@* ── 主线板块分析 ── *@
-@if (Model.Top10Sectors.Any())
-{
-    <div class="card mb-3">
-        <div class="card-header py-2 d-flex align-items-center gap-2">
-            <strong>当前 Top10 主线板块</strong>
-            <span class="text-muted small ms-auto">热度≥80=主线 / ≥65=强势 / &lt;50=冷门</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div>
+            <span style="font-size:15px;font-weight:700;color:#E2E8F0">今日机会池</span>
+            <span style="color:#64748B;font-size:12px;margin-left:8px">
+                扫描 @Model.ScannedCount 只 · 入选 @Model.Items.Count 只 · 龙头 @leaders.Count 只 · @Model.ElapsedSeconds.ToString("F0")s
+            </span>
         </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>#</th>
-                            <th>板块名称</th>
-                            <th>热度分</th>
-                            <th>上涨/涨停</th>
-                            <th>龙头强度</th>
-                            <th>资金方向</th>
-                            <th>连续性</th>
-                            <th>状态</th>
-                            <th>轮动信号</th>
+        <div>
+            <a href="@Url.Action("ExportCsv", new { date = Model.Date.ToString("yyyy-MM-dd") })" class="btn btn-sm btn-outline-secondary">导出CSV</a>
+            <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary ms-1">返回</a>
+        </div>
+    </div>
+
+    @if (topCards.Any())
+    {
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:16px">
+            @foreach (var item in topCards)
+            {
+                var borderColor = item.RiskScore <= 30 ? "#10B981" : item.RiskScore <= 50 ? "#F59E0B" : "#EF4444";
+                var gradeColor = item.ScoreLabel == "A" ? "#10B981" : item.ScoreLabel == "B" ? "#F59E0B" : "#9CA3AF";
+                <div style="background:#0F172A;border:1px solid #1E293B;border-left:3px solid @borderColor;border-radius:6px;padding:14px 16px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                        <div>
+                            <span style="font-size:16px;font-weight:700;color:#E2E8F0">@item.Name</span>
+                            <span style="color:#64748B;font-size:12px;margin-left:6px">@item.Code</span>
+                        </div>
+                        <span style="font-size:14px;font-weight:700;color:@gradeColor;background:@(gradeColor)15;padding:2px 10px;border-radius:4px">@item.ScoreLabel 级</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px">
+                        <span style="font-size:20px;font-weight:700;color:#F8FAFC">@item.Price.ToString("F2")</span>
+                        @if (item.HasSectorData)
+                        {
+                            <span style="color:#94A3B8;font-size:12px;background:rgba(100,116,139,.15);padding:2px 8px;border-radius:3px">@item.Sector</span>
+                        }
+                        @if (!string.IsNullOrEmpty(item.LeaderDisplay))
+                        {
+                            var lb = item.LeaderRole switch { LeaderRole.Leader => "#EF4444", LeaderRole.Core => "#F59E0B", _ => "#64748B" };
+                            <span style="color:@lb;font-size:11px;background:@(lb)15;padding:2px 8px;border-radius:3px;font-weight:600">@item.LeaderDisplay</span>
+                        }
+                        @if (item.IsMarketLeader)
+                        {
+                            <span style="color:#EF4444;font-size:10px;background:rgba(239,68,68,.15);padding:2px 6px;border-radius:3px;font-weight:700">市场龙头</span>
+                        }
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                        <span style="font-size:12px;color:@item.RiskColor;background:@(item.RiskColor)15;padding:2px 8px;border-radius:3px;font-weight:600">
+                            风险@(item.RiskLabel)
+                        </span>
+                        <span style="color:#94A3B8;font-size:12px">@item.Reason</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(item.RiskWarning))
+                    {
+                        <div style="margin-top:6px;color:#F59E0B;font-size:11px">@item.RiskWarning</div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @if (remainingList.Any())
+    {
+        <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead>
+                    <tr style="background:#1E293B;color:#94A3B8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
+                        <th style="padding:10px 12px;text-align:left;font-weight:500">#</th>
+                        <th style="padding:10px 12px;text-align:left;font-weight:500">代码/名称</th>
+                        @if (Model.HasSectorData)
+                        {
+                            <th style="padding:10px 12px;text-align:left;font-weight:500">板块</th>
+                            <th style="padding:10px 12px;text-align:left;font-weight:500">地位</th>
+                        }
+                        <th style="padding:10px 12px;text-align:right;font-weight:500">当前价</th>
+                        <th style="padding:10px 12px;text-align:center;font-weight:500">评分</th>
+                        <th style="padding:10px 12px;text-align:center;font-weight:500">风险</th>
+                        <th style="padding:10px 12px;text-align:left;font-weight:500">入选理由</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in remainingList)
+                    {
+                        var rowBg = item.Rank % 2 == 0 ? "#0F172A" : "#131C2E";
+                        <tr style="background:@rowBg;border-bottom:1px solid #1E293B">
+                            <td style="padding:8px 12px;color:#64748B">@item.Rank</td>
+                            <td style="padding:8px 12px">
+                                <span style="color:#E2E8F0;font-weight:600">@item.Name</span>
+                                <span style="color:#64748B;font-size:11px;margin-left:4px">@item.Code</span>
+                                @if (item.HasHighRisk)
+                                {
+                                    foreach (var tag in item.RiskTags)
+                                    {
+                                        <span class="badge @RiskTagDisplay.CssClass(tag)" style="font-size:10px;margin-left:3px">@tag.Label</span>
+                                    }
+                                }
+                            </td>
+                            @if (Model.HasSectorData)
+                            {
+                                <td style="padding:8px 12px;color:#94A3B8">@item.SectorDisplay</td>
+                                <td style="padding:8px 12px">
+                                    @if (!string.IsNullOrEmpty(item.LeaderDisplay))
+                                    {
+                                        var lb = item.LeaderRole switch { LeaderRole.Leader => "#EF4444", LeaderRole.Core => "#F59E0B", LeaderRole.Follower or LeaderRole.CatchUp => "#60A5FA", _ => "#64748B" };
+                                        <span style="color:@lb;font-size:11px;background:@(lb)15;padding:2px 7px;border-radius:3px">@item.LeaderDisplay</span>
+                                    }
+                                </td>
+                            }
+                            <td style="padding:8px 12px;text-align:right;color:#E2E8F0;font-weight:600">@item.Price.ToString("F2")</td>
+                            <td style="padding:8px 12px;text-align:center">
+                                <span style="color:@(item.ScoreLabel=="A"?"#10B981":item.ScoreLabel=="B"?"#F59E0B":"#9CA3AF");font-weight:700;font-size:14px">@item.ScoreLabel</span>
+                                <span style="color:#64748B;font-size:10px;margin-left:2px">@item.ScoreStrength</span>
+                            </td>
+                            <td style="padding:8px 12px;text-align:center">
+                                <span style="color:@item.RiskColor;font-weight:600">@item.RiskLabel</span>
+                            </td>
+                            <td style="padding:8px 12px;color:#94A3B8;font-size:12px;max-width:260px">
+                                @item.Reason
+                                @if (!string.IsNullOrEmpty(item.RiskWarning))
+                                {
+                                    <span style="color:#F59E0B;display:block;font-size:11px">@item.RiskWarning</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (Model.Top10Sectors != null && Model.Top10Sectors.Any())
+    {
+        <details style="margin-top:16px">
+            <summary style="color:#64748B;font-size:13px;cursor:pointer">板块热度排行</summary>
+            <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;overflow:hidden;margin-top:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead>
+                        <tr style="background:#1E293B;color:#94A3B8;font-size:11px">
+                            <th style="padding:8px 12px;text-align:left">板块</th>
+                            <th style="padding:8px 12px;text-align:center">热度</th>
+                            <th style="padding:8px 12px;text-align:center">涨停</th>
+                            <th style="padding:8px 12px;text-align:center">上涨</th>
+                            <th style="padding:8px 12px;text-align:left">状态</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @for (int i = 0; i < Model.Top10Sectors.Count; i++)
+                        @foreach (var sec in Model.Top10Sectors.Take(10))
                         {
-                            var sec = Model.Top10Sectors[i];
-                            var rotation = Model.SectorRotations.FirstOrDefault(r => r.SectorName == sec.SectorName);
-                            <tr>
-                                <td class="text-muted">@(i + 1)</td>
-                                <td><strong>@sec.SectorName</strong></td>
-                                <td class="@HeatClass(sec.SectorHeatScore)">@sec.SectorHeatScore.ToString("F0")</td>
-                                <td>@sec.RisingCount / <span class="text-danger">@sec.LimitUpCount</span></td>
-                                <td>@sec.SectorLeaderStrength.ToString("F0")</td>
-                                <td>@(sec.SectorCapitalFlow >= 60 ? "净流入" : sec.SectorCapitalFlow >= 40 ? "中性" : "净流出")</td>
-                                <td>@sec.SectorContinuity.ToString("F0")</td>
-                                <td>
-                                    @if (sec.IsMainstream) { <span class="badge bg-success">主线</span> }
-                                    else if (sec.IsHotSector) { <span class="badge bg-warning text-dark">强势</span> }
-                                    else if (sec.IsDeclining) { <span class="badge bg-danger">退潮</span> }
-                                    else { <span class="badge bg-secondary">一般</span> }
-                                </td>
-                                <td class="small text-muted">
-                                    @if (rotation?.IsStrengthening == true) { <span class="text-success">↑ 加强</span> }
-                                    else if (rotation?.IsWeakening == true) { <span class="text-danger">↓ 退潮</span> }
+                            var heatColor = sec.SectorHeatScore >= 80 ? "#10B981" : sec.SectorHeatScore >= 65 ? "#F59E0B" : "#9CA3AF";
+                            <tr style="border-bottom:1px solid #1E293B">
+                                <td style="padding:7px 12px;color:#E2E8F0">@sec.SectorName</td>
+                                <td style="padding:7px 12px;text-align:center;color:@heatColor;font-weight:700">@sec.SectorHeatScore.ToString("F0")</td>
+                                <td style="padding:7px 12px;text-align:center;color:#EF4444;font-weight:600">@sec.LimitUpCount</td>
+                                <td style="padding:7px 12px;text-align:center;color:#E2E8F0">@sec.RisingCount</td>
+                                <td style="padding:7px 12px">
+                                    <span style="color:@(sec.IsMainstream?"#10B981":sec.IsDeclining?"#EF4444":"#94A3B8");font-size:11px">
+                                        @(sec.IsMainstream ? "主线" : sec.IsDeclining ? "退潮" : sec.IsHotSector ? "强势" : "一般")
+                                    </span>
                                 </td>
                             </tr>
                         }
                     </tbody>
                 </table>
             </div>
-        </div>
-    </div>
-}
-
-@if (leaders.Any())
-{
-    <div class="alert alert-success py-2 mb-3">
-        <strong>板块龙头/中军（@leaders.Count 只）：</strong>
-        @string.Join("、", leaders.Select(x => $"{x.Name}({x.Code})"))
-    </div>
-}
-
-@if (!Model.Items.Any())
-{
-    <div class="alert alert-info">今日未发现符合条件的候选股</div>
-}
-else
-{
-    <div class="table-responsive">
-        <table class="table table-hover align-middle table-sm">
-            <thead class="table-light">
-                <tr>
-                    <th>#</th>
-                    <th>代码/名称</th>
-                    <th>地位</th>
-                    <th>所属板块</th>
-                    <th>当前价</th>
-                    <th>综合分</th>
-                    <th>二波</th>
-                    <th>筹码</th>
-                    <th>风险</th>
-                    <th>层级</th>
-                    <th>入选理由</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var item in Model.Items)
-                {
-                    <tr class="@(item.IsMarketLeader ? "table-danger" : item.IsValuePool ? "table-success" : "")">
-                        <td class="text-muted">@item.Rank</td>
-                        <td>
-                            <strong>@item.Code</strong><br/>
-                            <span class="text-muted small">@item.Name</span>
-                            @if (item.HasHighRisk)
-                            {
-                                foreach (var tag in item.RiskTags)
-                                {
-                                    <br/><span class="badge @RiskTagDisplay.CssClass(tag)" title="@tag.Description">@tag.Label</span>
-                                }
-                            }
-                        </td>
-                        <td>
-                            <span class="badge @LeaderRoleDisplay.BadgeClass(item.LeaderRole)">@LeaderRoleDisplay.Label(item.LeaderRole)</span>
-                            @if (item.IsMarketLeader) { <br/><span class="badge bg-danger">市场龙头</span> }
-                        </td>
-                        <td class="small">
-                            @item.Sector
-                            @if (item.IsMainstreamSector) { <br/><span class="badge bg-success">主线</span> }
-                            @if (!string.IsNullOrEmpty(item.SectorEmotionLabel))
-                            { <br/><span class="text-muted" style="font-size:0.75em">@item.SectorEmotionLabel</span> }
-                        </td>
-                        <td>@item.Price.ToString("F2")</td>
-                        <td><strong>@item.WatchPoolScore.ToString("F1")</strong></td>
-                        <td>@item.SecondWaveProbability.ToString("F0")%</td>
-                        <td>@item.ChipLockScore.ToString("F0")</td>
-                        <td class="@RiskClass(item.RiskScore)">@item.RiskScore</td>
-                        <td><span class="badge bg-@TierClass(item.Tier)">@item.Tier</span></td>
-                        <td class="small text-muted" style="max-width:220px">
-                            @item.Reason
-                            @if (!string.IsNullOrEmpty(item.RiskWarning))
-                            { <br/><span class="text-warning">⚠ @item.RiskWarning</span> }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+        </details>
+    }
 }

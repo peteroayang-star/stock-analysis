@@ -1,70 +1,126 @@
 @using StockAnalysis.Web.Models
 @{
-    ViewData["Title"] = "每日机会池";
+    ViewData["Title"] = "今日机会";
     var history = ViewBag.History as List<WatchPoolResult> ?? [];
     var hotSectors = ViewBag.HotSectors as List<string> ?? [];
 }
 
-<h4 class="mb-1">每日机会池</h4>
-<p class="text-muted small mb-3">扫描热门板块，筛选"主升平台+筹码锁定"候选股，每日生成 Top 20 观察池。</p>
+<h4 class="mb-1">今日机会</h4>
+<p class="text-muted small mb-3">每日自动扫描、批量分析、板块选股 — 统一机会发现</p>
 
-<div class="card mb-4">
-    <div class="card-body">
-        <div class="mb-3">
-            <label class="form-label fw-bold">选择扫描板块（默认扫描全板块热门股）</label>
-            <div class="d-flex flex-wrap gap-1 mb-2" id="sector-chips">
-                @foreach (var s in hotSectors.Take(30))
-                {
-                    <span class="badge bg-light text-dark border sector-chip" data-sector="@s" style="cursor:pointer">@s</span>
-                }
+@* Tab 导航 *@
+<ul class="nav nav-tabs mb-3" id="opportunity-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="tab-daily" data-bs-toggle="tab" data-bs-target="#panel-daily" type="button" role="tab">每日扫描</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-batch" data-bs-toggle="tab" data-bs-target="#panel-batch" type="button" role="tab">批量分析</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-sector" data-bs-toggle="tab" data-bs-target="#panel-sector" type="button" role="tab">板块选股</button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    @* Tab 1: 每日扫描 *@
+    <div class="tab-pane fade show active" id="panel-daily" role="tabpanel">
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">选择扫描板块（默认扫描全板块热门股）</label>
+                    <div class="d-flex flex-wrap gap-1 mb-2" id="sector-chips">
+                        @foreach (var s in hotSectors.Take(30))
+                        {
+                            <span class="badge bg-light text-dark border sector-chip" data-sector="@s" style="cursor:pointer">@s</span>
+                        }
+                    </div>
+                    <div class="form-text">点击板块标签选中/取消，不选则扫描所有热门板块</div>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="advanced-mode">
+                    <label class="form-check-label" for="advanced-mode">
+                        高级模式：全市场扫描（耗时 5~15 分钟，默认仅扫描热门板块成分股）
+                    </label>
+                </div>
+                <button id="start-scan-btn" class="btn btn-primary btn-lg">开始扫描</button>
+                <span class="text-muted small ms-3" id="scan-estimate">预计扫描 500~800 只，约 2~5 分钟</span>
             </div>
-            <div class="form-text">点击板块标签选中/取消，不选则扫描所有热门板块</div>
         </div>
-        <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="advanced-mode">
-            <label class="form-check-label" for="advanced-mode">
-                高级模式：全市场扫描（耗时 5~15 分钟，默认仅扫描热门板块成分股）
-            </label>
+
+        @* 扫描进度 *@
+        <div id="scan-progress" class="card mb-4" style="display:none">
+            <div class="card-body">
+                <h6>扫描进度 <span id="stat-status" class="badge bg-info"></span></h6>
+                <div class="progress mb-2">
+                    <div id="progress-bar" class="progress-bar" style="width:0%">0%</div>
+                </div>
+                <div class="row small text-muted">
+                    <div class="col-md-4">已处理：<strong id="stat-processed">0</strong> / <span id="stat-total">0</span></div>
+                    <div class="col-md-4">已命中：<strong id="stat-matched" class="text-success">0</strong> 只</div>
+                    <div class="col-md-4">已过滤：<strong id="stat-filtered" class="text-warning">0</strong> 只</div>
+                    <div class="col-md-4 mt-1">当前：<span id="stat-current">-</span></div>
+                    <div class="col-md-4 mt-1">数据源：<span id="stat-source">-</span></div>
+                    <div class="col-md-4 mt-1">失败：<strong id="stat-failed" class="text-danger">0</strong> 只</div>
+                </div>
+                <div id="stat-message" class="alert alert-warning mt-2 small" style="display:none"></div>
+            </div>
         </div>
-        <button id="start-scan-btn" class="btn btn-primary btn-lg">开始扫描</button>
-        <span class="text-muted small ms-3" id="scan-estimate">预计扫描 500~800 只，约 2~5 分钟</span>
     </div>
-</div>
 
-@* 扫描进度 *@
-<div id="scan-progress" class="card mb-4" style="display:none">
-    <div class="card-body">
-        <h6>扫描进度 <span id="stat-status" class="badge bg-info"></span></h6>
-        <div class="progress mb-2">
-            <div id="progress-bar" class="progress-bar" style="width:0%">0%</div>
-        </div>
-        <div class="row small text-muted">
-            <div class="col-md-4">
-                已处理：<strong id="stat-processed">0</strong> / <span id="stat-total">0</span>
-            </div>
-            <div class="col-md-4">
-                已命中：<strong id="stat-matched" class="text-success">0</strong> 只
-            </div>
-            <div class="col-md-4">
-                已过滤：<strong id="stat-filtered" class="text-warning">0</strong> 只
-            </div>
-            <div class="col-md-4 mt-1">
-                当前：<span id="stat-current">-</span>
-            </div>
-            <div class="col-md-4 mt-1">
-                数据源：<span id="stat-source">-</span>
-            </div>
-            <div class="col-md-4 mt-1">
-                失败：<strong id="stat-failed" class="text-danger">0</strong> 只
+    @* Tab 2: 批量分析 *@
+    <div class="tab-pane fade" id="panel-batch" role="tabpanel">
+        <div class="card" style="max-width:520px">
+            <div class="card-body">
+                <form method="post" action="/Opportunity/Index">
+                    <div class="mb-3">
+                        <textarea name="stocks" class="form-control" rows="4"
+                            placeholder="每行或逗号分隔，例如：&#10;中船防务&#10;000001,600519,贵州茅台" required></textarea>
+                    </div>
+                    @Html.ValidationSummary(false, "", new { @class = "text-danger small" })
+                    <button type="submit" class="btn btn-primary btn-lg w-100">批量分析</button>
+                </form>
             </div>
         </div>
-        <div id="stat-message" class="alert alert-warning mt-2 small" style="display:none"></div>
+    </div>
+
+    @* Tab 3: 板块选股 *@
+    <div class="tab-pane fade" id="panel-sector" role="tabpanel">
+        <div class="card" style="max-width:520px">
+            <div class="card-body">
+                <form method="post" action="/Screener/Index">
+                    <div class="mb-2">
+                        <label class="form-label">快速选择热门板块</label>
+                        <select id="sector-select" class="form-select">
+                            <option value="">-- 点击快速填入 --</option>
+                            @foreach (var s in hotSectors)
+                            {
+                                <option value="@s">@s</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">板块名称 <span class="text-muted small">（可手动输入）</span></label>
+                        <input name="sector" id="sector-input" type="text" class="form-control form-control-lg"
+                               placeholder="例如：算力租赁、液冷、CPO..." required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">筛选模式</label>
+                        <select name="mode" class="form-select">
+                            <option value="dragon">普通龙头回调</option>
+                            <option value="mainupplatform">主升平台模式（二波机会）</option>
+                        </select>
+                    </div>
+                    @Html.ValidationSummary(false, "", new { @class = "text-danger small" })
+                    <button type="submit" class="btn btn-primary btn-lg w-100">开始扫描</button>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
 
 @if (history.Any())
 {
-    <h6 class="mb-2">历史记录</h6>
+    <h6 class="mb-2 mt-4">历史记录</h6>
     <div class="list-group" style="max-width:400px">
         @foreach (var h in history)
         {
@@ -132,13 +188,11 @@
             fetch('/WatchPool/Progress?scanId=' + scanId)
                 .then(function(r) { return r.json(); })
                 .then(function(p) {
-                    // 更新进度条
                     if (p.total > 0) {
                         var pct = p.percent || Math.round(p.processed / p.total * 100);
                         document.getElementById('progress-bar').style.width = pct + '%';
                         document.getElementById('progress-bar').textContent = pct + '%';
                     }
-                    // 更新所有统计数字
                     document.getElementById('stat-processed').textContent = p.processed;
                     document.getElementById('stat-total').textContent = p.total;
                     document.getElementById('stat-matched').textContent = p.matched;
@@ -152,7 +206,6 @@
                          p.status === 'Failed' ? 'bg-danger' :
                          p.status === 'Running' ? 'bg-info' : 'bg-secondary');
 
-                    // 处理失败状态
                     if (p.status === 'Failed') {
                         clearInterval(pollTimer);
                         document.getElementById('stat-message').style.display = 'block';
@@ -163,29 +216,32 @@
                         return;
                     }
 
-                    // 处理完成状态
                     if (p.done) {
                         clearInterval(pollTimer);
                         if (p.matched > 0 || p.total > 0) {
-                            // 有结果，跳转
                             setTimeout(function() {
                                 window.location.href = '/WatchPool/Result';
                             }, 500);
                         } else {
-                            // 扫描完成但无结果
                             document.getElementById('stat-message').style.display = 'block';
                             document.getElementById('stat-message').textContent =
-                                '扫描完成但未命中任何股票。可能原因：快照数据为空、所有候选股被过滤、或命中条件过严。请检查后端控制台日志。';
+                                '扫描完成但未命中任何股票。可能原因：快照数据为空、所有候选股被过滤、或命中条件过严。';
                             document.getElementById('start-scan-btn').disabled = false;
                             document.getElementById('start-scan-btn').textContent = '重新扫描';
                             isScanning = false;
                         }
                     }
                 })
-                .catch(function() {
-                    // 网络错误，继续轮询
-                });
+                .catch(function() { });
         }, 2000);
+    }
+
+    // 板块选股 tab 的下拉联动
+    var sectorSelect = document.getElementById('sector-select');
+    if (sectorSelect) {
+        sectorSelect.addEventListener('change', function() {
+            if (this.value) document.getElementById('sector-input').value = this.value;
+        });
     }
 })();
 </script>

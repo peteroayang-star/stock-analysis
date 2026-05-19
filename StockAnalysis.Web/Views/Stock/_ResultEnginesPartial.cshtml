@@ -97,32 +97,25 @@
     </div>
 }
 
-@* 龙虎榜行为 *@
-@if (s.DragonTiger != null)
+@* 龙虎榜行为（仅在有上榜数据时显示） *@
+@if (s.DragonTiger != null && s.DragonTiger.IsOnDragonTigerList)
 {
     var dt = s.DragonTiger;
     <div class="l3-block" style="grid-column:1/-1;background:#1a1f2e;padding:12px;border-radius:4px;margin-top:12px">
         <div class="l3-title" style="color:#f59e0b">龙虎榜行为</div>
-        @if (dt.IsOnDragonTigerList)
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+            <div><div style="color:#9CA3AF;font-size:11px">近10日上榜</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@dt.ListedDaysIn10 次</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">游资接力</div><div style="font-size:20px;font-weight:700;color:@(dt.RelayStrength>=70?"#2d6a4f":dt.RelayStrength>=50?"#e9c46a":"#9CA3AF")">@dt.RelayStrength.ToString("F0")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">机构参与</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@(dt.InstitutionBuyRatio.ToString("P0"))</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">一日游风险</div><div style="font-size:16px;font-weight:700;color:@(dt.IsOneDayTour?"#e76f51":"#2d6a4f")">@(dt.IsOneDayTour?"是":"否")</div></div>
+            <div><div style="color:#9CA3AF;font-size:11px">锁仓特征</div><div style="font-size:16px;font-weight:700;color:@(dt.IsLockPosition?"#2d6a4f":"#9CA3AF")">@(dt.IsLockPosition?"是":"否")</div></div>
+        </div>
+        @if (dt.Tags.Any())
         {
-            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
-                <div><div style="color:#9CA3AF;font-size:11px">近10日上榜</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@dt.ListedDaysIn10 次</div></div>
-                <div><div style="color:#9CA3AF;font-size:11px">游资接力</div><div style="font-size:20px;font-weight:700;color:@(dt.RelayStrength>=70?"#2d6a4f":dt.RelayStrength>=50?"#e9c46a":"#9CA3AF")">@dt.RelayStrength.ToString("F0")</div></div>
-                <div><div style="color:#9CA3AF;font-size:11px">机构参与</div><div style="font-size:20px;font-weight:700;color:#E5E7EB">@(dt.InstitutionBuyRatio.ToString("P0"))</div></div>
-                <div><div style="color:#9CA3AF;font-size:11px">一日游风险</div><div style="font-size:16px;font-weight:700;color:@(dt.IsOneDayTour?"#e76f51":"#2d6a4f")">@(dt.IsOneDayTour?"是":"否")</div></div>
-                <div><div style="color:#9CA3AF;font-size:11px">锁仓特征</div><div style="font-size:16px;font-weight:700;color:@(dt.IsLockPosition?"#2d6a4f":"#9CA3AF")">@(dt.IsLockPosition?"是":"否")</div></div>
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+                @foreach (var tag in dt.Tags)
+                { <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:rgba(245,158,11,.15);color:#f59e0b">@tag</span> }
             </div>
-            @if (dt.Tags.Any())
-            {
-                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
-                    @foreach (var tag in dt.Tags)
-                    { <span style="padding:2px 8px;border-radius:3px;font-size:12px;background:rgba(245,158,11,.15);color:#f59e0b">@tag</span> }
-                </div>
-            }
-        }
-        else
-        {
-            <div style="margin-top:8px;color:#6B7280;font-size:13px">暂无龙虎榜数据</div>
         }
         <div style="margin-top:10px;color:#D1D5DB;font-size:13px;background:#111827;padding:10px;border-radius:4px">@dt.Summary</div>
     </div>

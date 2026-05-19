@@ -11,7 +11,7 @@
             <input id="home-search" type="text" class="form-control" placeholder="代码/名称，如 000066 或 中国长城" />
             <button class="btn btn-primary" id="home-search-btn">分析</button>
         </div>
-        <a asp-controller="Stock" asp-action="Index" class="btn btn-sm btn-outline-secondary mt-2">批量分析 &gt;</a>
+        <a asp-controller="WatchPool" asp-action="Index" class="btn btn-sm btn-outline-secondary mt-2">今日机会 &gt;</a>
     </div>
 </div>
 
@@ -34,9 +34,8 @@
             <div class="card-header"><strong>快速操作</strong></div>
             <div class="card-body">
                 <div class="d-grid gap-2">
-                    <a asp-controller="WatchPool" asp-action="Index" class="btn btn-outline-primary">每日机会池 — 扫描热门板块</a>
+                    <a asp-controller="WatchPool" asp-action="Index" class="btn btn-outline-primary">今日机会 — 每日扫描 + 批量分析 + 板块选股</a>
                     <a asp-controller="Portfolio" asp-action="Index" class="btn btn-outline-success">我的持仓 — 持仓风险评估</a>
-                    <a asp-controller="Screener" asp-action="Index" class="btn btn-outline-warning">龙头选股 — 板块龙头回调</a>
                 </div>
             </div>
         </div>

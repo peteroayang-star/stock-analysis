@@ -36,6 +36,7 @@ else
     {
         <div class="terminal-card @DecisionBorderClass(item.Signal.Decision)">
             @await Html.PartialAsync("_ResultHeaderPartial", item)
+            @await Html.PartialAsync("_ResultTradingLogicPartial", item)
             <div class="layer-3" style="display:none">
                 @await Html.PartialAsync("_ResultSignalsPartial", item)
                 @await Html.PartialAsync("_ResultIntradayPartial", item)

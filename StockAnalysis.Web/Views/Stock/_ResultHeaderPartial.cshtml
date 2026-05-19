@@ -61,6 +61,34 @@
     };
 }
 
+@* 统一结论卡片 *@
+<div style="background:#111827;border:1px solid #1F2937;border-radius:6px;padding:12px 16px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:#9CA3AF;font-size:11px">操作状态</span>
+            <span style="font-size:15px;font-weight:700;color:@(s.Decision switch { Decision.Buy or Decision.TryBuy => "#10B981", Decision.Watch or Decision.Hold => "#3B82F6", Decision.Reduce => "#F59E0B", Decision.Sell or Decision.Ignore => "#EF4444", _ => "#9CA3AF" });background:@(s.Decision switch { Decision.Buy or Decision.TryBuy => "#10B981", Decision.Watch or Decision.Hold => "#3B82F6", Decision.Reduce => "#F59E0B", Decision.Sell or Decision.Ignore => "#EF4444", _ => "#9CA3AF" })20;padding:3px 10px;border-radius:4px">@(s.Decision switch { Decision.Buy or Decision.TryBuy => "买入观察", Decision.Watch => "继续观察", Decision.Hold => "持有", Decision.Reduce => "减仓", Decision.Sell or Decision.Ignore => "规避", _ => "继续观察" })</span>
+        </div>
+        <div style="color:#374151">|</div>
+        <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:#9CA3AF;font-size:11px">风险等级</span>
+            <span style="font-size:15px;font-weight:700;color:@(s.RiskScore >= 50 ? "#EF4444" : s.RiskScore >= 25 ? "#F59E0B" : "#10B981");background:@(s.RiskScore >= 50 ? "#EF4444" : s.RiskScore >= 25 ? "#F59E0B" : "#10B981")20;padding:3px 10px;border-radius:4px">@(s.RiskScore >= 50 ? "高" : s.RiskScore >= 25 ? "中" : "低")</span>
+        </div>
+        <div style="color:#374151">|</div>
+        <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:#9CA3AF;font-size:11px">趋势阶段</span>
+            <span style="font-size:15px;font-weight:700;color:#60A5FA;background:rgba(96,165,250,.15);padding:3px 10px;border-radius:4px">@(s.DetailedStage switch { DetailedTrendStage.Launch => "启动", DetailedTrendStage.TrendBuilding => "增强", DetailedTrendStage.MainUpEarly or DetailedTrendStage.MainUpMid => "主升", DetailedTrendStage.MainUpLate or DetailedTrendStage.HighShock => "高位", DetailedTrendStage.DistributionRisk or DetailedTrendStage.TrendDecline => "退潮", _ => "启动" })</span>
+        </div>
+        <div style="color:#374151">|</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="color:#9CA3AF;font-size:11px">关键价位</span>
+            <span style="font-size:13px">支撑 <b style="color:#E5E7EB">@(s.SupportPrice?.ToString("F2") ?? "-")</b></span>
+            <span style="font-size:13px">观察 <b style="color:#E5E7EB">@(s.WatchPrice?.ToString("F2") ?? "-")</b></span>
+            <span style="font-size:13px">止损 <b style="color:#EF4444">@(s.StopLossPrice?.ToString("F2") ?? "-")</b></span>
+            @if (s.TargetPrice.HasValue) { <span style="font-size:13px">目标 <b style="color:#10B981">@s.TargetPrice.Value.ToString("F2")</b></span> }
+        </div>
+    </div>
+</div>
+
 <div class="layer-1">
     <!-- 行1：名称 + 决策标签 -->
     <div class="l1-row-name">
@@ -109,7 +137,7 @@
 
             // 位置等级
             string posLabel = s.PositionLevel switch {
-                PositionLevel.Low => "低位", PositionLevel.Mid => "中位", PositionLevel.High => "高位"
+                PositionLevel.Low => "低位", PositionLevel.Mid => "中位", PositionLevel.High => "高位", _ => ""
             };
             <span class="tag tag-smart-other">@posLabel</span>
 

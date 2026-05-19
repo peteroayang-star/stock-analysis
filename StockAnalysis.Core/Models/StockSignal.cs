@@ -219,4 +219,6 @@ public class StockSignal
     public AccelerationState AccelerationState { get; set; }
     /// <summary>统一展示标签(位置+风险+阶段)</summary>
     public string UnifiedLabel { get; set; } = "";
+    /// <summary>交易逻辑分析结果（非F10资料页）</summary>
+    public TradingLogicResult? TradingLogic { get; set; }
 }

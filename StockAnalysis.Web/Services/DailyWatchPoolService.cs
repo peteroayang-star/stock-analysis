@@ -84,7 +84,9 @@ public class DailyWatchPoolService
         // 全市场情绪统计
         int totalSnap = snapshot.Count;
         int risingSnap = snapshot.Count(s => s.ChangePct > 0);
+        int fallingSnap = snapshot.Count(s => s.ChangePct < 0);
         int limitUpSnap = snapshot.Count(s => s.ChangePct >= 9.5m);
+        int limitDownSnap = snapshot.Count(s => s.ChangePct <= -9.5m);
         decimal avgGain = totalSnap > 0 ? snapshot.Average(s => s.ChangePct) : 0;
 
         // ── 步骤2: 主线板块识别 ──────────────────────────────
@@ -275,8 +277,7 @@ public class DailyWatchPoolService
                     SectorHeatScore = mainline?.HeatScore ?? 0,
                     IsMainstreamSector = (mainline?.HeatScore ?? 0) >= 80,
                     IsSectorDeclining = false,
-                    Reason = $"板块[{c.Sector}]热度{mainline?.HeatScore ?? 0:F0}，排名{c.SectorRank}/{totalCount}，" +
-                             $"趋势{signal.Trend}，风险{signal.RiskScore}分",
+                    Reason = BuildFriendlyReason(signal, mainline, c.Sector),
                     RiskWarning = signal.IsOverextended ? "高位偏离，追涨风险" : ""
                 };
 
@@ -337,7 +338,12 @@ public class DailyWatchPoolService
             DataSourceWarnings = _ds.Status.Warnings,
             MainlineSectors = mainlines,
             MarketEmotion = marketCtxResult.EmotionCycle,
-            MarketSummary = marketCtxResult.MarketSummary
+            MarketSummary = marketCtxResult.MarketSummary,
+            MarketRisingCount = risingSnap,
+            MarketFallingCount = fallingSnap,
+            MarketLimitUpCount = limitUpSnap,
+            MarketLimitDownCount = limitDownSnap,
+            AvgGain = Math.Round(avgGain, 4)
         };
         await SaveLogAsync(result);
         return result;
@@ -518,6 +524,45 @@ public class DailyWatchPoolService
         };
         await SaveLogAsync(result);
         return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 友好的入选理由
+    // ═══════════════════════════════════════════════════════════════
+
+    private static string BuildFriendlyReason(StockSignal s, MainlineSector? mainline, string sector)
+    {
+        var parts = new List<string>();
+
+        // 趋势描述
+        if (s.Trend == Trend.Up)
+            parts.Add(s.DetailedStage switch
+            {
+                DetailedTrendStage.MainUpEarly or DetailedTrendStage.MainUpMid => "主升趋势明确",
+                DetailedTrendStage.TrendBuilding => "趋势逐步增强",
+                DetailedTrendStage.Launch => "趋势启动初期",
+                _ => "均线结构稳定"
+            });
+        else if (s.Trend == Trend.Sideways)
+            parts.Add("缩量整理中");
+
+        // 量价描述
+        if (s.VolumeDescription.Contains("放量"))
+            parts.Add("资金重新放量");
+        else if (s.VolumeDescription.Contains("缩量"))
+            parts.Add("缩量整固");
+
+        // 风险描述
+        if (s.RiskScore <= 30)
+            parts.Add("风险可控");
+        else if (s.RiskScore <= 50)
+            parts.Add("风险适中");
+
+        // 板块描述
+        if (mainline != null && mainline.HeatScore >= 65)
+            parts.Add($"主线情绪仍在");
+
+        return parts.Count > 0 ? string.Join("，", parts) : "技术形态符合筛选条件";
     }
 
     // ═══════════════════════════════════════════════════════════════

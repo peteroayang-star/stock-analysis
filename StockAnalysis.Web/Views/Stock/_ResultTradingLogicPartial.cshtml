@@ -1,0 +1,128 @@
+@model StockAnalysis.Web.Models.SignalWithSuggestion
+@using StockAnalysis.Core.Models
+@{
+    var tl = Model.Signal.TradingLogic;
+    if (tl == null) return;
+}
+
+<div class="trading-logic-card" style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:16px;margin-top:12px">
+    @* 标题行 *@
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:15px;font-weight:700;color:#E2E8F0">交易逻辑</span>
+        <span style="font-size:12px;color:#64748B">交易视角下的公司逻辑摘要</span>
+    </div>
+
+    @* 核心摘要 —— 最醒目的部分 *@
+    <div style="background:#1A2235;border-left:3px solid #60A5FA;border-radius:4px;padding:12px 14px;margin-bottom:14px">
+        <div style="color:#E2E8F0;font-size:13px;line-height:1.8">
+            @tl.TradingSummary
+        </div>
+    </div>
+
+    @* 两列信息网格 *@
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;font-size:13px">
+        @* 左侧 *@
+        <div>
+            @if (!string.IsNullOrEmpty(tl.MainBusiness) && tl.MainBusiness != "—")
+            {
+                <div style="margin-bottom:8px">
+                    <span style="color:#64748B">主营业务</span>
+                    <span style="color:#E2E8F0;margin-left:8px">@tl.MainBusiness</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(tl.CoreProduct) && tl.CoreProduct != "—")
+            {
+                <div style="margin-bottom:8px">
+                    <span style="color:#64748B">核心产品</span>
+                    <span style="color:#E2E8F0;margin-left:8px">@tl.CoreProduct</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(tl.CoreConcept) && tl.CoreConcept != "—")
+            {
+                <div style="margin-bottom:8px">
+                    <span style="color:#64748B">核心概念</span>
+                    <span style="color:#60A5FA;margin-left:8px">@tl.CoreConcept</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(tl.IndustryChain) && tl.IndustryChain != "—")
+            {
+                <div style="margin-bottom:8px">
+                    <span style="color:#64748B">产业链</span>
+                    <span style="color:#94A3B8;margin-left:8px">@tl.IndustryChain</span>
+                </div>
+            }
+        </div>
+        @* 右侧 *@
+        <div>
+            @if (!string.IsNullOrEmpty(tl.MarketAttribute))
+            {
+                <div style="margin-bottom:8px">
+                    <span style="color:#64748B">市场属性</span>
+                    <span style="color:#E2E8F0;margin-left:8px">@tl.MarketAttribute</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(tl.CapitalStyle))
+            {
+                <div style="margin-bottom:8px">
+                    <span style="color:#64748B">资金风格</span>
+                    <span style="color:#E2E8F0;margin-left:8px">@tl.CapitalStyle</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(tl.FinancialSummary))
+            {
+                <div style="margin-bottom:8px">
+                    <span style="color:#64748B">财报摘要</span>
+                    <span style="color:#94A3B8;margin-left:8px;font-size:12px">@tl.FinancialSummary</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* 炒作逻辑 + 持续性 *@
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1E293B">
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+            @if (!string.IsNullOrEmpty(tl.HypeLogic))
+            {
+                <div style="flex:1;min-width:200px">
+                    <div style="color:#64748B;font-size:11px;margin-bottom:4px">当前逻辑</div>
+                    <div style="color:#E2E8F0;font-size:13px">
+                        @{
+                            var hypeParts = tl.HypeLogic.Split(" — ", 2);
+                            if (hypeParts.Length == 2)
+                            {
+                                <span style="color:#F59E0B;font-weight:600">@hypeParts[0]</span>
+                                <span style="color:#1E293B"> — </span>
+                                <span style="color:#94A3B8">@hypeParts[1]</span>
+                            }
+                            else
+                            {
+                                @tl.HypeLogic
+                            }
+                        }
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(tl.Sustainability))
+            {
+                <div style="flex:1;min-width:200px">
+                    <div style="color:#64748B;font-size:11px;margin-bottom:4px">持续性</div>
+                    <div style="color:@(tl.Sustainability.Contains("较强")||tl.Sustainability.Contains("较好")?"#10B981":tl.Sustainability.Contains("偏弱")||tl.Sustainability.Contains("较差")?"#EF4444":"#F59E0B");font-size:13px">@tl.Sustainability</div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* 风险点 *@
+    @if (tl.RiskPoints.Count > 0)
+    {
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #1E293B">
+            <div style="color:#64748B;font-size:11px;margin-bottom:6px">风险提示</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                @foreach (var rp in tl.RiskPoints)
+                {
+                    <span style="color:#F59E0B;font-size:11px;background:rgba(245,158,11,.1);padding:3px 10px;border-radius:3px">@rp</span>
+                }
+            </div>
+        </div>
+    }
+</div>

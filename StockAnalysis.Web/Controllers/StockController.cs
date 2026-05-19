@@ -16,6 +16,7 @@ public class StockController : Controller
     private readonly MarketIndexService _marketIndex;
     private readonly SparkAiService _spark;
     private readonly AiAnalysisCacheService _aiCache;
+    private readonly TradingLogicEngine _tradingLogic = new();
     private readonly RiskReasonAnalyzer _reasoner = new();
     private readonly DecisionRanker _ranker = new();
 
@@ -176,6 +177,12 @@ public class StockController : Controller
             var fin = await _finance.GetAsync(s.Code);
             var (finAdj, finReasons) = FinanceHelper.CalculateRiskAdjustment(fin);
             s.RiskScore = Math.Clamp(s.RiskScore + finAdj, 0, 100);
+
+            // 交易逻辑分析
+            s.TradingLogic = _tradingLogic.Analyze(s,
+                sectorName: s.SectorEmotion?.SectorName,
+                revenueYoy: fin?.RevenueYoy,
+                profitYoy: fin?.ProfitYoy);
 
             // 用实时价重算关键价位（避免本地CSV数据过期导致价位与现价严重偏离）
             if (rt != null && rt.Price > 0)

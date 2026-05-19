@@ -1,0 +1,49 @@
+@{
+    ViewData["Title"] = "设置";
+}
+
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <h4 class="mb-3">系统设置</h4>
+
+        <div class="card mb-3">
+            <div class="card-header">分析引擎</div>
+            <div class="card-body">
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" id="advancedEngines" checked>
+                    <label class="form-check-label" for="advancedEngines">
+                        <strong>高级分析引擎</strong><br/>
+                        <small class="text-muted">启用主力行为、龙虎榜、板块情绪、筹码控盘等高级引擎（增加分析耗时）</small>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">AI 解读</div>
+            <div class="card-body">
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" id="aiEnabled" checked>
+                    <label class="form-check-label" for="aiEnabled">
+                        <strong>启用 AI 解读按钮</strong><br/>
+                        <small class="text-muted">在个股详情页显示"生成AI解读"按钮，调用星火大模型进行分析</small>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">关于</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr><td style="width:120px">系统名称</td><td>股票分析系统</td></tr>
+                    <tr><td>版本</td><td>2.0</td></tr>
+                    <tr><td>分析引擎</td><td>核心8引擎 + 高级9引擎（可关闭）</td></tr>
+                    <tr><td>数据来源</td><td>腾讯行情 / AKShare / 新浪财经</td></tr>
+                    <tr><td>AI 模型</td><td>讯飞星火 generalv3.5</td></tr>
+                </table>
+            </div>
+        </div>
+        <p class="text-muted small text-end">&copy; 2026 股票分析系统 - 数据仅供参考，不构成投资建议</p>
+    </div>
+</div>

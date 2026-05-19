@@ -37,7 +37,7 @@ public class StockAnalyzer
     public List<StockSignal> Analyze(List<StockBar> bars, TradingMode mode = TradingMode.Candidate,
         List<StockBar>? marketBars = null, List<MinuteBar>? minuteBars = null,
         List<DragonTigerRecord>? dragonTigerRecords = null, List<List<StockBar>>? sectorStocks = null,
-        string? sectorName = null, bool skipAmountFilter = false)
+        string? sectorName = null, bool skipAmountFilter = false, bool advancedAnalysis = false)
     {
         int last = bars.Count - 1;
         if (last < 28) return [];
@@ -55,7 +55,7 @@ public class StockAnalyzer
         var vol = _volume.Analyze(bars, last);
         var cycle = _cycle.Detect(bars, last, vol);
         var (signalType, signalReason) = _signal.Detect(bars, last, vol, cycle);
-        var smartMoney = _smartMoney.Analyze(bars, last, vol);
+        var smartMoney = advancedAnalysis ? _smartMoney.Analyze(bars, last, vol) : new SmartMoneyResult(SmartMoneyBehavior.None, "");
         int limitUpCount = ComputeLimitUpCount(bars, last);
         var stockStyle = _styleDetector.Detect(bars, last, limitUpCount);
         var position = _position.Evaluate(bars, last, vol, cycle, smartMoney, ind);
@@ -63,16 +63,18 @@ public class StockAnalyzer
         var riskScore = riskResult.Total;
         var riskReasons = riskResult.Reasons;
         var intraday = _intraday.Analyze(bars, last, minuteBars, stockStyle);
-        var mainForce = _mainForce.Analyze(bars, last,
-            intradayWeak: intraday.Score < 40,
-            intradayDanger: intraday.IsDangerZone);
+        var mainForce = advancedAnalysis
+            ? _mainForce.Analyze(bars, last,
+                intradayWeak: intraday.Score < 40,
+                intradayDanger: intraday.IsDangerZone)
+            : new MainForceBehaviorResult(0, 0, 0, 50, 50, 50, [], "", MarketStage.Accumulation);
 
-        // ── 3. 新引擎 ──────────────────────────────────────────
-        var platform    = _mainUpPlatform.Analyze(bars, last, ind, vol, cycle, riskScore);
-        var dragonTiger = _dragonTiger.Analyze(dragonTigerRecords);
-        var sectorEmo   = _sectorEmotion.Analyze(sectorName, sectorStocks);
-        var chipControl = _chipControl.Analyze(bars, last, ind, vol);
-        var sectorRes   = _sectorResonance.Analyze(bars, sectorStocks, minuteBars);
+        // ── 3. 高级引擎（仅在 advancedAnalysis 模式下运行）──
+        var platform    = advancedAnalysis ? _mainUpPlatform.Analyze(bars, last, ind, vol, cycle, riskScore) : null;
+        var dragonTiger = advancedAnalysis ? _dragonTiger.Analyze(dragonTigerRecords) : null;
+        var sectorEmo   = advancedAnalysis ? _sectorEmotion.Analyze(sectorName, sectorStocks) : null;
+        var chipControl = advancedAnalysis ? _chipControl.Analyze(bars, last, ind, vol) : null;
+        var sectorRes   = advancedAnalysis ? _sectorResonance.Analyze(bars, sectorStocks, minuteBars) : null;
 
         // ── 4. 趋势 + 止损 ─────────────────────────────────────
         var trend = ind != null && ind.MA5 > ind.MA10 && ind.MA10 > ind.MA20 ? Trend.Up

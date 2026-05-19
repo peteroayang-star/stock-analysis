@@ -73,6 +73,16 @@ public class WatchPoolItem
     public string SectorEmotionLabel { get; set; } = "";
     public bool IsMarketLeader { get; set; }
     public string LeaderReason { get; set; } = "";
+
+    // 显示标签（替代数字评分）
+    public string ScoreLabel => WatchPoolScore >= 80 ? "A" : WatchPoolScore >= 68 ? "B" : "C";
+    public string ScoreStrength => WatchPoolScore >= 80 ? "强" : WatchPoolScore >= 68 ? "中" : "弱";
+    public string RiskLabel => RiskScore <= 30 ? "低" : RiskScore <= 50 ? "中" : "高";
+    public string RiskColor => RiskScore <= 30 ? "#10B981" : RiskScore <= 50 ? "#F59E0B" : "#EF4444";
+    public bool HasSectorData => !string.IsNullOrEmpty(Sector) && SectorEmotionLabel != "-";
+    public string LeaderDisplay => LeaderRole == LeaderRole.Edge && !HasSectorData ? "" :
+        LeaderRoleDisplay.Label(LeaderRole);
+    public string SectorDisplay => HasSectorData ? Sector : "";
 }
 
 public static class LeaderRoleDisplay
@@ -83,7 +93,7 @@ public static class LeaderRoleDisplay
         LeaderRole.Core     => "中军",
         LeaderRole.Follower => "跟风",
         LeaderRole.CatchUp  => "补涨",
-        LeaderRole.Edge     => "边缘",
+        LeaderRole.Edge     => "普通",
         _ => ""
     };
     public static string BadgeClass(LeaderRole r) => r switch
@@ -132,6 +142,22 @@ public class WatchPoolResult
         _ => "-"
     };
     public bool HasSectorData => MainlineSectors.Count > 0;
+
+    // 市场广度数据
+    public int MarketRisingCount { get; set; }
+    public int MarketFallingCount { get; set; }
+    public int MarketLimitUpCount { get; set; }
+    public int MarketLimitDownCount { get; set; }
+    public decimal AvgGain { get; set; }
+    public string MarketBreadthLabel => AvgGain switch {
+        >= 0.03m => "极强", >= 0.01m => "偏强", >= -0.005m => "中性", >= -0.02m => "偏弱", _ => "极弱"
+    };
+    public string MarketBreadthColor => AvgGain switch {
+        >= 0.03m => "#10B981", >= 0.01m => "#34D399", >= -0.005m => "#9CA3AF", >= -0.02m => "#F59E0B", _ => "#EF4444"
+    };
+    // 数据源状态（紧凑）
+    public string DataSourceStatusLabel => UsingCache ? "本地缓存" : DataSourceFailCount > 0 ? "部分异常" : "实时";
+    public string DataSourceStatusColor => UsingCache ? "#F59E0B" : DataSourceFailCount > 0 ? "#EF4444" : "#10B981";
 }
 
 /// <summary>机会池扫描进度（供前端轮询）</summary>
